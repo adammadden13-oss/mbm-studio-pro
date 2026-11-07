@@ -1218,6 +1218,16 @@
                 };
 
                 const handleKeyDown = (e) => {
+                    // Jika modal sedang terbuka, tombol Escape menutup modal tanpa keluar fullscreen
+                    if (e.key === 'Escape') {
+                        if (editingRow) { e.preventDefault(); setEditingRow(null); return; }
+                        if (showRatingModal) { e.preventDefault(); setShowRatingModal(false); return; }
+                        if (showApiKeyModal) { e.preventDefault(); setShowApiKeyModal(false); return; }
+                    }
+
+                    // Abaikan shortcut jika salah satu modal sedang aktif
+                    if (editingRow || showRatingModal || showApiKeyModal) return;
+
                     // Abaikan shortcut jika sedang mengetik di input, textarea, atau elemen yang bisa diedit
                     if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) {
                         return;
@@ -1263,7 +1273,7 @@
                     document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
                     window.removeEventListener('keydown', handleKeyDown);
                 };
-            }, [isVideoZoomed]);
+            }, [isVideoZoomed, editingRow, showRatingModal, showApiKeyModal]);
 
             // Delegasikan tombol fullscreen bawaan pojok kanan bawah video ke container agar Floating MBM otomatis tampil
             useEffect(() => {
@@ -2535,6 +2545,237 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                   (boxPositions.mbm?.x !== 0 || boxPositions.mbm?.y !== 0) ||
                                   (boxPositions.floatingMbm?.x !== 0 || boxPositions.floatingMbm?.y !== 0);
 
+            // Render Modal Menu Edit Segmen MBM (Dapat tampil baik di mode normal maupun mode fullscreen)
+            const renderEditRowModal = () => {
+                if (!editingRow) return null;
+                return (
+                    <div 
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn pointer-events-auto select-text overflow-y-auto"
+                        onClick={() => setEditingRow(null)}
+                    >
+                        <div 
+                            className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto my-auto text-slate-900"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 font-black text-xs flex items-center justify-center">
+                                        #{editingRow.index}
+                                    </span>
+                                    <h3 className="font-black text-base text-slate-900">Menu Edit Segmen MBM</h3>
+                                </div>
+                                <button 
+                                    type="button"
+                                    onClick={() => setEditingRow(null)}
+                                    className="text-slate-400 hover:text-slate-700 p-1 text-sm rounded-lg hover:bg-slate-100 transition-colors"
+                                >
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                            Rentang Waktu (Timecode)
+                                        </label>
+                                        <input 
+                                            type="text"
+                                            value={editingRow.rentangWaktu}
+                                            onChange={(e) => setEditingRow({ ...editingRow, rentangWaktu: e.target.value })}
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
+                                            placeholder="00:00 - 01:00"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                            Unit / Segmen
+                                        </label>
+                                        <input 
+                                            type="text"
+                                            value={editingRow.unit || ""}
+                                            onChange={(e) => setEditingRow({ ...editingRow, unit: e.target.value })}
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
+                                            placeholder="Segmen 1 / Break Iklan"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                            TVR (Rating Point)
+                                        </label>
+                                        <input 
+                                            type="number"
+                                            step="0.1"
+                                            value={editingRow.tvr !== undefined && editingRow.tvr !== null ? editingRow.tvr : ""}
+                                            onChange={(e) => setEditingRow({ ...editingRow, tvr: e.target.value })}
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
+                                            placeholder="2.8"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                            Audience Share (%)
+                                        </label>
+                                        <input 
+                                            type="number"
+                                            step="0.1"
+                                            value={editingRow.share !== undefined && editingRow.share !== null ? editingRow.share : ""}
+                                            onChange={(e) => setEditingRow({ ...editingRow, share: e.target.value })}
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
+                                            placeholder="14.5"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                        Deskripsi Adegan
+                                    </label>
+                                    <textarea 
+                                        value={editingRow.deskripsi}
+                                        onChange={(e) => setEditingRow({ ...editingRow, deskripsi: e.target.value })}
+                                        rows={5}
+                                        className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 leading-relaxed resize-y"
+                                        placeholder="Tuliskan deskripsi adegan..."
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                                <button 
+                                    type="button"
+                                    onClick={() => setEditingRow(null)}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => {
+                                        setHistoryStack(prev => [...prev, { rows: [...mbmRows], synopsis }]);
+                                        setMbmRows(prev => prev.map(row => {
+                                            if (row.id === editingRow.id) {
+                                                return {
+                                                    ...row,
+                                                    rentangWaktu: editingRow.rentangWaktu,
+                                                    deskripsi: editingRow.deskripsi,
+                                                    tvr: editingRow.tvr !== "" && editingRow.tvr !== null && editingRow.tvr !== undefined ? Number(editingRow.tvr) : null,
+                                                    share: editingRow.share !== "" && editingRow.share !== null && editingRow.share !== undefined ? Number(editingRow.share) : null,
+                                                    unit: editingRow.unit || null
+                                                };
+                                            }
+                                            return row;
+                                        }));
+                                        setEditingRow(null);
+                                        notify("Perubahan adegan & rating berhasil disimpan!");
+                                    }}
+                                    className="px-4 py-2 rounded-xl text-xs font-black bg-obsidian text-neon hover:bg-black transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
+                                >
+                                    <span>Simpan Perubahan</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // Render Modal Nielsen Rating Data (Dapat tampil baik di mode normal maupun mode fullscreen)
+            const renderRatingModal = () => {
+                if (!showRatingModal) return null;
+                return (
+                    <div 
+                        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn pointer-events-auto select-text overflow-y-auto"
+                        onClick={() => setShowRatingModal(false)}
+                    >
+                        <div 
+                            className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto my-auto text-slate-900"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-xl bg-neon text-obsidian flex items-center justify-center text-sm font-black shadow-sm">
+                                        <i className="fa-solid fa-chart-line"></i>
+                                    </div>
+                                    <div>
+                                        <h3 className="font-black text-base text-slate-900">Tempel Data Rating Nielsen (TVR, Share, Unit)</h3>
+                                        <p className="text-[11px] text-slate-500 font-medium">Salin langsung kolom dari Excel riset, lalu paste di bawah ini.</p>
+                                    </div>
+                                </div>
+                                <button 
+                                    type="button"
+                                    onClick={() => setShowRatingModal(false)}
+                                    className="text-slate-400 hover:text-slate-700 p-1 text-sm rounded-lg hover:bg-slate-100 transition-colors"
+                                >
+                                    <i className="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600 text-xs space-y-1">
+                                    <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                                        <i className="fa-solid fa-circle-info text-lime-700"></i>
+                                        <span>Format yang Didukung (Bisa langsung Copy & Paste dari Excel):</span>
+                                    </p>
+                                    <p className="font-mono text-[10.5px] text-slate-500 pl-4">
+                                        Kolom 1: Rentang Waktu (opsional)<br />
+                                        Kolom 2: <strong>TVR</strong> (angka rating)<br />
+                                        Kolom 3: <strong>SHARE (%)</strong> (angka pangsa pemirsa)<br />
+                                        Kolom 4: <strong>UNIT</strong> (Segmen tayangan / Iklan)
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                            Area Tempel Data Teks:
+                                        </label>
+                                        <button 
+                                            type="button"
+                                            onClick={() => {
+                                                const sampleText = `00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1\n02:00 - 03:00\t3.1\t16.5\tSegmen 1\n03:00 - 04:00\t1.8\t9.1\tBreak Iklan 1\n04:00 - 05:00\t3.4\t17.8\tSegmen 2\n05:00 - 06:00\t3.7\t18.9\tSegmen 2\n06:00 - 07:00\t3.5\t17.4\tSegmen 2\n07:00 - 08:00\t1.9\t9.5\tBreak Iklan 2\n08:00 - 09:00\t3.6\t18.2\tSegmen 3\n09:00 - 10:00\t3.2\t16.0\tSegmen 3`;
+                                                setPastedRatingText(sampleText);
+                                                notify("Contoh data rating Nielsen dimuat!");
+                                            }}
+                                            className="text-[10px] font-bold text-lime-700 hover:text-lime-900 bg-limePill px-2 py-0.5 rounded-md hover:underline"
+                                        >
+                                            + Gunakan Contoh Data Rating
+                                        </button>
+                                    </div>
+                                    <textarea 
+                                        value={pastedRatingText}
+                                        onChange={(e) => setPastedRatingText(e.target.value)}
+                                        rows={8}
+                                        placeholder={"Tempel data Excel di sini...\nContoh:\n00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1"}
+                                        className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs font-mono font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 resize-y leading-relaxed shadow-inner"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                                <button 
+                                    type="button"
+                                    onClick={() => setShowRatingModal(false)}
+                                    className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all"
+                                >
+                                    Batal
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => parseAndApplyRatingData(pastedRatingText)}
+                                    className="px-5 py-2.5 rounded-xl text-xs font-black bg-neon text-obsidian hover:bg-neon-dark transition-all shadow-md active:scale-95 flex items-center gap-1.5"
+                                >
+                                    <i className="fa-solid fa-check text-xs"></i>
+                                    <span>Terapkan Data Rating & Buka Grafik</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
             return (
                 <div className="min-h-screen flex flex-col bg-[#f8fafc]">
                     
@@ -3131,7 +3372,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                         </button>
                                                                     )}
 
-                                                                    {/* Toggle Bahasa di Layar Penuh Zoom */}
+                                                                    {/* Toggle Bahasa di Layar Penuh Zoom (Dinonaktifkan) */}
                                                                     <button 
                                                                         type="button"
                                                                         onClick={() => {
@@ -3140,7 +3381,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                             localStorage.setItem("mbm_app_lang", next);
                                                                             notify(next === "en" ? "Language: English 🇬🇧" : "Bahasa: Indonesia 🇮🇩");
                                                                         }}
-                                                                        className="bg-obsidian/90 hover:bg-slate-800 text-white px-3 py-2 rounded-2xl text-xs font-black border border-slate-700 transition-all shadow-xl flex items-center gap-1.5 active:scale-95"
+                                                                        style={{ display: 'none' }}
+                                                                        className="hidden"
                                                                         title={lang === "id" ? "Switch to English (Bahasa)" : "Ganti ke Bahasa Indonesia"}
                                                                     >
                                                                         <i className="fa-solid fa-globe text-neon text-xs"></i>
@@ -3429,6 +3671,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                     title="Tarik sisi ini untuk meninggikan atau memendekkan panel MBM"
                                                                 />
 
+                                                            </div>
+                                                        )}
+
+                                                        {/* MODAL & TOAST DI DALAM CONTAINER FULLSCREEN AGAR MUNCUL SAAT FULLSCREEN */}
+                                                        {isVideoZoomed && renderEditRowModal()}
+                                                        {isVideoZoomed && renderRatingModal()}
+                                                        {isVideoZoomed && toastMessage && (
+                                                            <div className="fixed bottom-6 right-6 z-[110] bg-obsidian text-neon px-5 py-3 rounded-full shadow-2xl flex items-center gap-3 font-extrabold text-xs border border-slate-700 animate-bounce pointer-events-auto">
+                                                                <i className="fa-solid fa-circle-check"></i>
+                                                                <span>{toastMessage}</span>
                                                             </div>
                                                         )}
 
@@ -5317,7 +5569,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                     {/* ======================================================== */}
                     {/* MODAL MENU EDIT BARIS MBM                              */}
                     {/* ======================================================== */}
-                    {editingRow && (
+                    {!isVideoZoomed && renderEditRowModal()}
+                    {false && (
                         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
                             <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4">
                                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -5435,7 +5688,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                     {/* ======================================================== */}
                     {/* MODAL TEMPEL / IMPOR DATA RATING NIELSEN (FITUR C)        */}
                     {/* ======================================================== */}
-                    {showRatingModal && (
+                    {!isVideoZoomed && renderRatingModal()}
+                    {false && (
                         <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
                             <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4">
                                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">
