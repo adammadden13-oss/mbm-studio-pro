@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <title>MBM Studio Pro - Minute by Minute Video Log Generator</title>
     <!-- Favicon (Obsidian Circle with Neon Bolt) -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Ccircle cx='256' cy='256' r='256' fill='%230f172a'/%3E%3Cg transform='translate(179, 153) scale(0.40)'%3E%3Cpath d='M0 256L245.7 0L320 0L234.7 170.7L384 170.7L138.3 512L64 512L149.3 341.3L0 341.3Z' fill='%23ccff00' stroke='%23ccff00' stroke-width='14' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E">
@@ -660,9 +661,48 @@
             const defaultSynopsis = "Segmen ini didominasi oleh drama hubungan antara Sena dan Davina, di mana Davina merasa sangat sedih dan Sena berusaha mengatasi perasaannya, termasuk dengan menari. Terjadi juga momen ketika Davina mencurahkan isi hatinya kepada Om Henry, calon mertuanya, yang kemudian menasihati Sena untuk terus meminta maaf. Secara paralel, misi penyadapan yang dilakukan Dion terancam gagal dan memicu klarifikasi dari pihak berwenang, mengungkapkan adanya potensi konflik dan pengkhianatan dalam cerita. | Segmen ini menyoroti konflik dalam hubungan Davina dan Sena, di mana Davina merasa sedih sementara Sena berusaha mengatasi perasaannya dengan menari. Terungkapnya perangkat penyadap Dion menciptakan ketegangan, tetapi suasana ceria muncul saat Suban menghibur para aktor dengan lagu. Jefri Nichol dan Salsabilla Adriani dari 'Terbaik Itu Kamu' menampilkan chemistry alami, sementara Bebeto Leutualy menampilkan bakat komedi dan komentator bola. Drama kembali memanas dengan pengkhianatan Marvin yang menjebak Kenzi, serta kecemburuan Luna terhadap kedekatan Saga dan Mila. Di sisi lain, momen ulang tahun Ari Irham di lokasi syuting dan interaksi lucu para pemain memberikan nuansa kebersamaan yang hangat. | Segmen ini menyoroti drama dan kegiatan di balik layar dari dua serial. Untuk 'Terikat Janji', Davina mengalami kekecewaan dan kemarahan karena kebohongan Sena, yang di sisi lain mencoba mengalihkan diri dengan berjoget. Henry memberikan nasihat kepada Sena untuk meminta maaf kepada Davina. Misi penyadapan Dion terancam gagal setelah Arman Andika mengetahui alatnya. Di momen yang lebih ceria, Suban, seorang penggemar, menghibur para pemain 'Terikat Janji' dengan lagu. Untuk 'Terbaik Itu Kamu', dibahas chemistry kuat antara Salsabila Adriani dan Jefri Nichol, serta perjalanan karir mereka. Bebeto Leutualy menampilkan sisi komedi dan kecintaannya pada komentar bola. Konflik memanas dengan rencana licik Marvin terhadap Prayoga dan Kenzi. Hubungan segi empat antara Luna, Saga, Marco, dan Mila juga menjadi fokus, dengan acara syukuran ulang tahun Ari Irham menambah suasana ceria di akhir segmen. | Tidak ada kejadian yang ditemukan dalam rentang waktu 15:00 hingga 20:00 karena durasi video tidak mencakup rentang waktu tersebut. | Segmen ini menyoroti konflik emosional antara Sena dan Davina dalam sinetron 'Terikat Janji', dengan Om Henry memberikan nasihat reflektif kepada Sena. Di sisi lain, misi penyadapan Dion untuk Polres Crakabumi menghadapi kendala dan memicu klarifikasi resmi. Suasana kemudian berubah ceria saat Suban menghibur para pemain dengan lagu. Segmen ini juga menampilkan wawancara dengan Salsabila Adriani dan Jefri Nichol dari 'Terbaik Itu Kamu', membahas chemistry mereka, perjalanan karir, dan bagaimana akting memberikan pengalaman hidup alternatif bagi Jefri. | Segmen ini menyoroti momen emosional Davina yang mencurahkan isi hati kepada Henry, yang kemudian menasihati Sena untuk terus meminta maaf. Sementara itu, misi penyadapan Dion terancam terbongkar, memicu kepanikan dan klarifikasi dari pihak kepolisian. Suasana kemudian menjadi lebih ringan dengan kedatangan Suban, seorang penggemar, yang menyanyikan lagu untuk para pemain, menciptakan momen tawa dan kebersamaan di balik layar. | Segmen ini menampilkan refleksi karir Salsabilla Adriani dan Jefri Nichol, menyoroti kesuksesan mereka dalam akting dan vlogging, serta chemistry mereka di layar. Bebeto Leutualy berbagi semangatnya sebagai komentator sepak bola dan aktor. Drama dalam 'Terbaik Itu Kamu' juga disorot, dengan pengkhianatan Marvin yang mengancam bisnis Prayoga dan ketegangan dalam hubungan cinta segi empat antara Luna, Saga, dan Mila. | Seorang pria mengangkat telepon dan berbicara dengan seorang wanita yang menunjukkan ekspresi khawatir saat menerima panggilan.";
 
             // ==========================================
-            // 2. STATE APLIKASI
+            // 2. STATE APLIKASI & MULTI-PROJECT (MAKS 5)
             // ==========================================
-            const [uploadedFileName, setUploadedFileName] = useState(() => localStorage.getItem('mbm_uploadedFileName_v3') || "Video_Log_1793953368968.xlsx");
+            const MAX_PROJECTS = 5;
+            const [projects, setProjects] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('mbm_projects_v2');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(0, MAX_PROJECTS);
+                    }
+                } catch(e) {}
+                const curFile = localStorage.getItem('mbm_uploadedFileName_v3') || "Video_Log_1793953368968.xlsx";
+                return [
+                    { id: 1, name: "Project 1", fileName: curFile, rowCount: 57, updatedAt: Date.now() },
+                    { id: 2, name: "Project 2", fileName: "Project_2_Log.xlsx", rowCount: 0, updatedAt: Date.now() },
+                    { id: 3, name: "Project 3", fileName: "Project_3_Log.xlsx", rowCount: 0, updatedAt: Date.now() }
+                ];
+            });
+
+            const [activeProjectId, setActiveProjectId] = useState(() => {
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id'));
+                    if (savedId && savedId >= 1 && savedId <= MAX_PROJECTS) return savedId;
+                } catch(e) {}
+                return 1;
+            });
+
+            const [editingProjectId, setEditingProjectId] = useState(null);
+            const [editingProjectName, setEditingProjectName] = useState("");
+            const fileMenuRef = useRef(null);
+
+            const [uploadedFileName, setUploadedFileName] = useState(() => {
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (parsed.fileName) return parsed.fileName;
+                    }
+                } catch(e) {}
+                return localStorage.getItem('mbm_uploadedFileName_v3') || "Video_Log_1793953368968.xlsx";
+            });
             const [fileFolderPath, setFileFolderPath] = useState(() => localStorage.getItem('mbm_fileFolderPath') || "C:\\Users\\MNC Channel\\Downloads");
             const [showFileMenu, setShowFileMenu] = useState(false);
             const [recentFiles, setRecentFiles] = useState(() => {
@@ -761,7 +801,7 @@
             // Interval MBM: 1m, 5m, 10m, 30m, 60m (1 jam)
             const [intervalMinutes, setIntervalMinutes] = useState(() => parseInt(localStorage.getItem('mbm_interval')) || 1);
             
-            // Video Player State
+            // Video Player State & Link / YouTube Monitoring
             const [videoFile, setVideoFile] = useState(null);
             const [videoUrl, setVideoUrl] = useState(null);
             const [videoDuration, setVideoDuration] = useState(0);
@@ -771,6 +811,12 @@
             const playerContainerRef = useRef(null);
             const fileInputRef = useRef(null);
             const excelInputRef = useRef(null);
+
+            // State Input Link Video / YouTube
+            const [videoSourceTab, setVideoSourceTab] = useState('local'); // 'local' | 'url'
+            const [inputVideoUrl, setInputVideoUrl] = useState('');
+            const [youtubeId, setYoutubeId] = useState(null);
+            const [showUrlInputModal, setShowUrlInputModal] = useState(false);
 
             // Audio Dialog Transcription State (Pilihan 1: Format Terpadu Visual + Dialog)
             const [includeAudioDialog, setIncludeAudioDialog] = useState(() => {
@@ -815,16 +861,33 @@
                 { tvr: 2.9, share: 14.7, unit: "Segmen 5" }
             ];
 
-            const [synopsis, setSynopsis] = useState(() => localStorage.getItem('mbm_synopsis_v3') !== null ? localStorage.getItem('mbm_synopsis_v3') : defaultSynopsis);
+            const [synopsis, setSynopsis] = useState(() => {
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (parsed.synopsis) return parsed.synopsis;
+                    }
+                } catch(e) {}
+                return localStorage.getItem('mbm_synopsis_v3') !== null ? localStorage.getItem('mbm_synopsis_v3') : defaultSynopsis;
+            });
             const [mbmRows, setMbmRows] = useState(() => {
-                const saved = localStorage.getItem('mbm_rows_v3');
                 let rows = defaultMbmData;
-                if (saved !== null) {
-                    try {
-                        const parsed = JSON.parse(saved);
-                        if (Array.isArray(parsed) && parsed.length > 0) rows = parsed;
-                    } catch(e) {}
-                }
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (Array.isArray(parsed.rows) && parsed.rows.length > 0) rows = parsed.rows;
+                    } else {
+                        const saved = localStorage.getItem('mbm_rows_v3');
+                        if (saved !== null) {
+                            const parsed = JSON.parse(saved);
+                            if (Array.isArray(parsed) && parsed.length > 0) rows = parsed;
+                        }
+                    }
+                } catch(e) {}
                 return rows.map((r, idx) => ({
                     ...r,
                     tvr: r.tvr !== undefined && r.tvr !== null ? r.tvr : defaultRatingPresets[idx % defaultRatingPresets.length].tvr,
@@ -1674,6 +1737,199 @@
                 localStorage.setItem('mbm_speed_mode', generationSpeedMode);
             }, [uploadedFileName, fileFolderPath, recentFiles, apiKey, selectedModel, intervalMinutes, synopsis, mbmRows, watermarkText, notesText, masks, showMasks, includeAudioDialog, generationSpeedMode]);
 
+            // Efek Click-Outside & Tombol Escape untuk Auto-Close Popover Menu File
+            useEffect(() => {
+                if (!showFileMenu) return;
+                const handleClickOutside = (e) => {
+                    if (fileMenuRef.current && !fileMenuRef.current.contains(e.target)) {
+                        setShowFileMenu(false);
+                    }
+                };
+                const handleKeyDown = (e) => {
+                    if (e.key === 'Escape') {
+                        setShowFileMenu(false);
+                    }
+                };
+                document.addEventListener('mousedown', handleClickOutside);
+                document.addEventListener('touchstart', handleClickOutside);
+                document.addEventListener('keydown', handleKeyDown);
+                return () => {
+                    document.removeEventListener('mousedown', handleClickOutside);
+                    document.removeEventListener('touchstart', handleClickOutside);
+                    document.removeEventListener('keydown', handleKeyDown);
+                };
+            }, [showFileMenu]);
+
+            // Sinkronisasi data project aktif ke LocalStorage & metadata list project
+            useEffect(() => {
+                if (!activeProjectId) return;
+                const curData = {
+                    rows: mbmRows,
+                    synopsis: synopsis,
+                    fileName: uploadedFileName,
+                    updatedAt: Date.now()
+                };
+                try {
+                    localStorage.setItem(`mbm_proj_data_${activeProjectId}`, JSON.stringify(curData));
+                } catch(e) {}
+
+                setProjects(prev => {
+                    let changed = false;
+                    const updated = prev.map(p => {
+                        if (p.id === activeProjectId) {
+                            if (p.fileName !== uploadedFileName || p.rowCount !== mbmRows.length) {
+                                changed = true;
+                                return { ...p, fileName: uploadedFileName, rowCount: mbmRows.length, updatedAt: Date.now() };
+                            }
+                        }
+                        return p;
+                    });
+                    if (changed) {
+                        try { localStorage.setItem('mbm_projects_v2', JSON.stringify(updated)); } catch(e) {}
+                        return updated;
+                    }
+                    return prev;
+                });
+            }, [activeProjectId, mbmRows, synopsis, uploadedFileName]);
+
+            // Beralih ke Project Lain (1-click Instant Switch)
+            const handleSwitchProject = (targetId) => {
+                if (targetId === activeProjectId) return;
+
+                // 1. Simpan data project saat ini terlebih dahulu
+                const currentData = {
+                    rows: mbmRows,
+                    synopsis: synopsis,
+                    fileName: uploadedFileName,
+                    updatedAt: Date.now()
+                };
+                try {
+                    localStorage.setItem(`mbm_proj_data_${activeProjectId}`, JSON.stringify(currentData));
+                } catch(e) {}
+
+                // 2. Ambil data project target dari LocalStorage
+                let nextRows = null;
+                let nextSynopsis = null;
+                let nextFileName = null;
+
+                try {
+                    const savedTarget = localStorage.getItem(`mbm_proj_data_${targetId}`);
+                    if (savedTarget) {
+                        const parsed = JSON.parse(savedTarget);
+                        if (parsed.rows && Array.isArray(parsed.rows) && parsed.rows.length > 0) nextRows = parsed.rows;
+                        if (parsed.synopsis) nextSynopsis = parsed.synopsis;
+                        if (parsed.fileName) nextFileName = parsed.fileName;
+                    }
+                } catch(e) {}
+
+                const targetProjectObj = projects.find(p => p.id === targetId);
+                if (!nextRows) {
+                    nextRows = defaultMbmData.map(r => ({ ...r }));
+                    nextSynopsis = defaultSynopsis;
+                    nextFileName = targetProjectObj ? targetProjectObj.fileName : `Project_${targetId}_Log.xlsx`;
+                }
+
+                setActiveProjectId(targetId);
+                try {
+                    localStorage.setItem('mbm_active_project_id', targetId.toString());
+                } catch(e) {}
+
+                setMbmRows(nextRows);
+                setSynopsis(nextSynopsis);
+                setUploadedFileName(nextFileName);
+
+                try {
+                    localStorage.setItem('mbm_rows_v3', JSON.stringify(nextRows));
+                    localStorage.setItem('mbm_synopsis_v3', nextSynopsis);
+                    localStorage.setItem('mbm_uploadedFileName_v3', nextFileName);
+                } catch(e) {}
+
+                notify(`Beralih ke ${targetProjectObj?.name || 'Project ' + targetId}`);
+            };
+
+            // Tambah Project Baru (Maksimal 5 untuk menjaga browser ringan)
+            const handleAddNewProject = () => {
+                if (projects.length >= MAX_PROJECTS) {
+                    notify("Maksimal 5 project untuk menjaga performa browser optimal!");
+                    return;
+                }
+                const existingIds = projects.map(p => p.id);
+                let nextId = 1;
+                for (let i = 1; i <= MAX_PROJECTS; i++) {
+                    if (!existingIds.includes(i)) {
+                        nextId = i;
+                        break;
+                    }
+                }
+                if (!nextId) nextId = projects.length + 1;
+
+                const newProj = {
+                    id: nextId,
+                    name: `Project ${nextId}`,
+                    fileName: `Project_${nextId}_Log.xlsx`,
+                    rowCount: defaultMbmData.length,
+                    updatedAt: Date.now()
+                };
+                const updated = [...projects, newProj].sort((a, b) => a.id - b.id);
+                setProjects(updated);
+                try {
+                    localStorage.setItem('mbm_projects_v2', JSON.stringify(updated));
+                } catch(e) {}
+
+                handleSwitchProject(nextId);
+                notify(`Project baru "${newProj.name}" aktif!`);
+            };
+
+            // Hapus Project Slot
+            const handleDeleteProject = (projId, e) => {
+                if (e) e.stopPropagation();
+                if (projects.length <= 1) {
+                    notify("Minimal harus ada 1 project aktif!");
+                    return;
+                }
+                const targetProj = projects.find(p => p.id === projId);
+                const confirmed = window.confirm(`Hapus slot "${targetProj?.name || 'Project ' + projId}"?\nData log di slot ini akan dibersihkan.`);
+                if (!confirmed) return;
+
+                try {
+                    localStorage.removeItem(`mbm_proj_data_${projId}`);
+                } catch(e) {}
+
+                const remaining = projects.filter(p => p.id !== projId);
+                setProjects(remaining);
+                try {
+                    localStorage.setItem('mbm_projects_v2', JSON.stringify(remaining));
+                } catch(e) {}
+
+                if (activeProjectId === projId) {
+                    const nextActive = remaining[0].id;
+                    handleSwitchProject(nextActive);
+                }
+                notify(`Slot project berhasil dibersihkan.`);
+            };
+
+            // Rename Project
+            const handleStartRenameProject = (proj, e) => {
+                if (e) e.stopPropagation();
+                setEditingProjectId(proj.id);
+                setEditingProjectName(proj.name);
+            };
+
+            const handleSaveRenameProject = (projId) => {
+                const trimmed = (editingProjectName || "").trim();
+                if (!trimmed) {
+                    setEditingProjectId(null);
+                    return;
+                }
+                setProjects(prev => {
+                    const updated = prev.map(p => p.id === projId ? { ...p, name: trimmed } : p);
+                    try { localStorage.setItem('mbm_projects_v2', JSON.stringify(updated)); } catch(e) {}
+                    return updated;
+                });
+                setEditingProjectId(null);
+                notify(`Nama project diubah menjadi "${trimmed}"`);
+            };
+
             const notify = (msg) => {
                 setToastMessage(msg);
                 setTimeout(() => setToastMessage(null), 3000);
@@ -1799,20 +2055,147 @@
                 return `${lineD} L ${lastX} ${baseY.toFixed(1)} L ${firstX} ${baseY.toFixed(1)} Z`;
             }
 
+            // Helper Deteksi ID Video YouTube
+            const extractYouTubeId = (url) => {
+                if (!url) return null;
+                const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=|shorts\/)([^#&?]*).*/;
+                const match = url.trim().match(regExp);
+                return (match && match[2].length === 11) ? match[2] : null;
+            };
+
+            // Kendali Pemutaran YouTube via postMessage
+            const seekYouTube = (seconds) => {
+                const iframe = document.getElementById('yt-player-iframe');
+                if (iframe && iframe.contentWindow) {
+                    iframe.contentWindow.postMessage(JSON.stringify({
+                        event: 'command',
+                        func: 'seekTo',
+                        args: [seconds, true]
+                    }), '*');
+                    iframe.contentWindow.postMessage(JSON.stringify({
+                        event: 'command',
+                        func: 'playVideo',
+                        args: []
+                    }), '*');
+                }
+                setCurrentTime(seconds);
+                setIsPlaying(true);
+            };
+
+            // Listener pesan waktu & status dari YouTube IFrame
+            useEffect(() => {
+                const handleYTMessage = (event) => {
+                    try {
+                        const data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                        if (data && data.event === 'infoDelivery' && data.info) {
+                            if (data.info.currentTime !== undefined && typeof data.info.currentTime === 'number') {
+                                setCurrentTime(data.info.currentTime);
+                            }
+                            if (data.info.duration !== undefined && typeof data.info.duration === 'number' && data.info.duration > 0) {
+                                setVideoDuration(data.info.duration);
+                            }
+                            if (data.info.playerState !== undefined) {
+                                setIsPlaying(data.info.playerState === 1);
+                            }
+                        }
+                    } catch(e) {}
+                };
+                window.addEventListener('message', handleYTMessage);
+                return () => window.removeEventListener('message', handleYTMessage);
+            }, [youtubeId]);
+
+            // Sinkronisasi timer sekunder saat YouTube memutar
+            useEffect(() => {
+                if (!youtubeId || !isPlaying) return;
+                const timer = setInterval(() => {
+                    setCurrentTime(prev => {
+                        if (videoDuration && prev >= videoDuration) {
+                            setIsPlaying(false);
+                            return prev;
+                        }
+                        return prev + 1;
+                    });
+                }, 1000);
+                return () => clearInterval(timer);
+            }, [youtubeId, isPlaying, videoDuration]);
+
+            // Unified Seek Function (Bekerja untuk Video Lokal, Direct MP4, dan YouTube)
+            const seekVideo = (timeSec) => {
+                if (youtubeId) {
+                    seekYouTube(timeSec);
+                    notify("Melompat ke menit " + formatTime(timeSec));
+                } else if (videoRef && videoRef.current) {
+                    videoRef.current.currentTime = timeSec;
+                    setCurrentTime(timeSec);
+                    notify("Melompat ke menit " + formatTime(timeSec));
+                } else {
+                    setCurrentTime(timeSec);
+                    notify("Waktu: " + formatTime(timeSec));
+                }
+            };
+
             // Seek video saat tombol play pada baris MBM diklik
             const seekToRow = (rentangWaktu) => {
                 const parts = rentangWaktu.split('-');
                 if (parts.length > 0) {
                     const startSec = parseTimeToSeconds(parts[0]);
-                    if (videoRef.current) {
-                        videoRef.current.currentTime = startSec;
-                        videoRef.current.play();
-                        setIsPlaying(true);
-                        notify(`Video memutar pada ${formatTime(startSec)}`);
-                    } else {
-                        notify(`Video belum diunggah. Waktu: ${parts[0].trim()}`);
-                    }
+                    seekVideo(startSec);
                 }
+            };
+
+            // Handler Muat Video dari URL (YouTube Publik atau Direct Stream .mp4)
+            const handleLoadVideoUrl = (urlToLoad) => {
+                const rawUrl = (urlToLoad || inputVideoUrl || "").trim();
+                if (!rawUrl) {
+                    notify("Harap masukkan link YouTube atau URL video!");
+                    return;
+                }
+
+                // 1. Cek Link YouTube
+                const ytId = extractYouTubeId(rawUrl);
+                if (ytId) {
+                    setYoutubeId(ytId);
+                    setVideoUrl(rawUrl);
+                    setVideoFile(null);
+                    const autoTitle = `YouTube_${ytId}.mp4`;
+                    setUploadedFileName(autoTitle);
+                    if (!videoDuration || videoDuration === 0) setVideoDuration(1800);
+                    setCurrentTime(0);
+                    setIsPlaying(false);
+
+                    setRecentFiles(prev => {
+                        const filtered = prev.filter(f => f.folder !== rawUrl);
+                        return [{ name: autoTitle, folder: rawUrl, type: "youtube", time: "Baru saja" }, ...filtered].slice(0, 8);
+                    });
+
+                    setShowUrlInputModal(false);
+                    notify(`Video YouTube (ID: ${ytId}) berhasil dimuat!`);
+                    return;
+                }
+
+                // 2. Cek Media Sosial TikTok / Instagram
+                if (rawUrl.includes('tiktok.com') || rawUrl.includes('instagram.com')) {
+                    alert("Platform TikTok & Instagram memproteksi streaming langsung di browser.\n\nTips: Silakan unduh file videonya lalu buka di aplikasi, atau gunakan link streaming langsung (.mp4) atau link YouTube.");
+                    return;
+                }
+
+                // 3. Direct Streaming Video (.mp4 / .webm)
+                setYoutubeId(null);
+                setVideoUrl(rawUrl);
+                setVideoFile(null);
+                let fileName = rawUrl.substring(rawUrl.lastIndexOf('/') + 1).split('?')[0] || "Stream_Video.mp4";
+                if (!fileName.includes('.')) fileName += ".mp4";
+                setUploadedFileName(fileName);
+                setCurrentTime(0);
+                setIsPlaying(false);
+
+                setRecentFiles(prev => {
+                    const filtered = prev.filter(f => f.folder !== rawUrl);
+                    return [{ name: fileName, folder: rawUrl, type: "video", time: "Baru saja" }, ...filtered].slice(0, 8);
+                });
+
+                setShowUrlInputModal(false);
+                notify(`Link streaming video "${fileName}" berhasil dimuat!`);
             };
 
             // Saat Video Diunggah (Simpan ke IndexedDB agar tidak hilang saat refresh)
@@ -1870,11 +2253,12 @@
                 if (!window.confirm("Apakah Anda yakin ingin mengeluarkan video ini dari pemutar?")) {
                     return;
                 }
-                if (videoUrl) {
+                if (videoUrl && !youtubeId && !videoUrl.startsWith('http')) {
                     URL.revokeObjectURL(videoUrl);
                 }
                 setVideoFile(null);
                 setVideoUrl(null);
+                setYoutubeId(null);
                 setVideoDuration(0);
                 setCurrentTime(0);
                 setIsPlaying(false);
@@ -3122,7 +3506,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                         </div>
 
                         {/* Tengah: Persis Seperti Attachment 1 (Ultra Simple & Bersih Tanpa Box Border) */}
-                        <div className="relative">
+                        <div className="relative" ref={fileMenuRef}>
                             <div 
                                 onClick={() => setShowFileMenu(!showFileMenu)}
                                 className="flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity select-none py-1 px-2 rounded-lg"
@@ -3138,6 +3522,17 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                             {/* DROPDOWN MENU POPOVER: LOKASI FOLDER & FILE SEBELUMNYA */}
                             {showFileMenu && (
                                 <div className="absolute top-12 left-1/2 -translate-x-1/2 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 z-50 animate-in fade-in zoom-in-95">
+                                    <div className="pb-2.5 mb-2 border-b border-slate-100 flex items-center justify-between">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="w-2 h-2 rounded-full bg-neon animate-pulse"></span>
+                                            <span className="text-[10px] font-black uppercase text-slate-700">
+                                                PROYEK AKTIF: <span className="text-indigo-600 font-extrabold">{projects.find(p => p.id === activeProjectId)?.name || 'Project ' + activeProjectId}</span>
+                                            </span>
+                                        </div>
+                                        <span className="text-[9px] font-mono font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                            Slot {activeProjectId} / {projects.length}
+                                        </span>
+                                    </div>
                                     <div className="pb-3 border-b border-slate-100">
                                         <div className="flex items-center justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-1">
                                             <span>LOKASI FOLDER FILE:</span>
@@ -3171,6 +3566,17 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                         >
                                             <i className="fa-solid fa-folder-plus text-neon text-xs"></i>
                                             <span>Buka File Lain (.xlsx / .csv / video)</span>
+                                        </button>
+                                        <button 
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setShowFileMenu(false);
+                                                setShowUrlInputModal(true);
+                                            }}
+                                            className="w-full mt-2 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold flex items-center justify-center gap-2 transition-all border border-slate-200 shadow-xs"
+                                        >
+                                            <i className="fa-brands fa-youtube text-red-600 text-sm"></i>
+                                            <span>Monitoring Link YouTube / Video URL</span>
                                         </button>
                                     </div>
 
@@ -3468,17 +3874,64 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                             >
                                                 {videoUrl ? (
                                                     <>
-                                                        <video 
-                                                            ref={videoRef}
-                                                            src={videoUrl} 
-                                                            controls 
-                                                            className="w-full h-full object-contain"
-                                                            onDoubleClick={toggleFullscreen}
-                                                            onLoadedMetadata={(e) => setVideoDuration(e.target.duration)}
-                                                            onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
-                                                            onPlay={() => setIsPlaying(true)}
-                                                            onPause={() => setIsPlaying(false)}
-                                                        />
+                                                        {youtubeId ? (
+                                                            <div className="w-full h-full relative bg-black flex flex-col items-center justify-center">
+                                                                <iframe
+                                                                    id="yt-player-iframe"
+                                                                    src={`https://www.youtube.com/embed/${youtubeId}?enablejsapi=1&autoplay=0&rel=0&modestbranding=1&playsinline=1`}
+                                                                    className="w-full h-full border-0 select-auto flex-1"
+                                                                    referrerPolicy="strict-origin-when-cross-origin"
+                                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                                                                    allowFullScreen
+                                                                />
+
+                                                                {/* Banner Info Khusus jika dibuka via file:// lokal */}
+                                                                {window.location.protocol === 'file:' && (
+                                                                    <div className="absolute top-12 left-1/2 -translate-x-1/2 z-20 bg-slate-950/90 border border-amber-500/60 text-slate-200 text-[11px] font-medium px-4 py-2 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-2.5 max-w-[92%] animate-in fade-in">
+                                                                        <i className="fa-solid fa-triangle-exclamation text-amber-400 text-sm shrink-0"></i>
+                                                                        <div className="flex-1">
+                                                                            <span className="font-bold text-amber-300">Info File Lokal:</span> Jika YouTube menampilkan <em>Error 153</em>, gunakan file <code>Jalankan_Server_Lokal.bat</code> atau publish ke <strong>GitHub Pages</strong>. AI tetap dapat menganalisis video ini normal!
+                                                                        </div>
+                                                                        <a
+                                                                            href={`https://www.youtube.com/watch?v=` + youtubeId}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            className="bg-red-600 hover:bg-red-700 text-white font-bold text-[10px] px-2.5 py-1.5 rounded-xl shrink-0 transition-all flex items-center gap-1 shadow-sm"
+                                                                        >
+                                                                            <span>Tonton di YouTube</span>
+                                                                            <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
+                                                                        </a>
+                                                                    </div>
+                                                                )}
+
+                                                                {/* Pintasan Buka Tab Baru */}
+                                                                <div className="absolute bottom-2 right-3 z-20 pointer-events-auto opacity-75 hover:opacity-100 transition-opacity">
+                                                                    <a
+                                                                        href={`https://www.youtube.com/watch?v=` + youtubeId}
+                                                                        target="_blank"
+                                                                        rel="noopener noreferrer"
+                                                                        className="bg-obsidian/90 hover:bg-red-600 text-white text-[10px] font-bold px-2.5 py-1 rounded-lg border border-slate-700 flex items-center gap-1.5 shadow-md"
+                                                                        title="Buka langsung di YouTube"
+                                                                    >
+                                                                        <i className="fa-brands fa-youtube text-red-400"></i>
+                                                                        <span>Buka di YouTube</span>
+                                                                        <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
+                                                                    </a>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <video 
+                                                                ref={videoRef}
+                                                                src={videoUrl} 
+                                                                controls 
+                                                                className="w-full h-full object-contain"
+                                                                onDoubleClick={toggleFullscreen}
+                                                                onLoadedMetadata={(e) => setVideoDuration(e.target.duration)}
+                                                                onTimeUpdate={(e) => setCurrentTime(e.target.currentTime)}
+                                                                onPlay={() => setIsPlaying(true)}
+                                                                onPause={() => setIsPlaying(false)}
+                                                            />
+                                                        )}
 
                                                         {/* KOTAK-KOTAK MASKING PENUTUP MERAH TRANSPARAN (DIABAIKAN) */}
                                                         {showMasks && masks.map(mask => (
@@ -3584,6 +4037,14 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                     >
                                                                         <i className="fa-solid fa-expand text-neon group-hover/fsbtn:text-obsidian transition-colors text-xs"></i>
                                                                         <span>{t("fullscreen")}</span>
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => setShowUrlInputModal(true)}
+                                                                        className="bg-obsidian/85 hover:bg-neon hover:text-obsidian text-white text-xs px-3 py-1.5 rounded-xl border border-slate-700 font-bold transition-all shadow-md flex items-center gap-1.5 active:scale-95 group/urlbtn"
+                                                                        title="Ganti atau masukkan link YouTube / Video URL lain"
+                                                                    >
+                                                                        <i className="fa-brands fa-youtube text-red-500 group-hover/urlbtn:text-obsidian transition-colors text-xs"></i>
+                                                                        <span>Ganti Link</span>
                                                                     </button>
                                                                     <button 
                                                                         onClick={handleRemoveVideo}
@@ -4134,11 +4595,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                                                     key={p.id || idx}
                                                                                                     type="button"
                                                                                                     onClick={() => {
-                                                                                                        if (videoRef && videoRef.current) {
-                                                                                                            videoRef.current.currentTime = p.sStart;
-                                                                                                            setCurrentTime(p.sStart);
-                                                                                                            notify("Lompat ke menit " + formatTime(p.sStart));
-                                                                                                        }
+                                                                                                        seekVideo(p.sStart);
                                                                                                     }}
                                                                                                     className={"flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono transition-all " + (
                                                                                                         isActive 
@@ -4515,25 +4972,126 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
 
                                                     </>
                                                 ) : (
-                                                    <div 
-                                                        onClick={() => fileInputRef.current.click()}
-                                                        className="w-full h-full flex flex-col items-center justify-center p-8 cursor-pointer bg-gradient-to-b from-slate-900 via-slate-950 to-black hover:bg-slate-900 transition-all text-center group"
-                                                    >
-                                                        <div className="w-20 h-20 rounded-full bg-obsidian text-neon flex items-center justify-center text-3xl mb-4 shadow-xl border-2 border-slate-800 group-hover:scale-110 group-hover:border-neon transition-all">
-                                                            <i className="fa-solid fa-play ml-1"></i>
+                                                    <div className="w-full h-full flex flex-col items-center justify-center p-6 bg-gradient-to-b from-slate-900 via-slate-950 to-black select-none">
+                                                        {/* Tab Selector: Upload File Lokal vs Monitoring Link YouTube */}
+                                                        <div className="flex items-center gap-1.5 p-1 bg-black/60 border border-slate-800 rounded-2xl mb-4 shadow-lg">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setVideoSourceTab('local')}
+                                                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                                                                    videoSourceTab === 'local'
+                                                                        ? 'bg-neon text-obsidian shadow-[0_0_15px_rgba(204,255,0,0.35)]'
+                                                                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                                                }`}
+                                                            >
+                                                                <i className="fa-solid fa-file-video text-xs"></i>
+                                                                <span>Upload File Lokal</span>
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setVideoSourceTab('url')}
+                                                                className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
+                                                                    videoSourceTab === 'url'
+                                                                        ? 'bg-neon text-obsidian shadow-[0_0_15px_rgba(204,255,0,0.35)]'
+                                                                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                                                }`}
+                                                            >
+                                                                <i className="fa-brands fa-youtube text-red-500 text-sm"></i>
+                                                                <span>Monitoring by Link / YouTube</span>
+                                                            </button>
                                                         </div>
-                                                        <p className="font-black text-base text-white tracking-tight">
-                                                            Klik di Sini untuk Memilih / Mengunggah Video
-                                                        </p>
-                                                        <p className="text-xs text-slate-400 mt-1.5 max-w-sm">
-                                                            Video akan diputar langsung di area ini dan tersinkronisasi otomatis dengan baris MBM di sebelah kanan.
-                                                        </p>
-                                                        <div className="mt-4 flex items-center gap-2">
-                                                            <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2.5 py-1 rounded-md border border-slate-700">MP4</span>
-                                                            <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2.5 py-1 rounded-md border border-slate-700">MKV</span>
-                                                            <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2.5 py-1 rounded-md border border-slate-700">MOV</span>
-                                                            <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2.5 py-1 rounded-md border border-slate-700">WebM</span>
-                                                        </div>
+
+                                                        {videoSourceTab === 'local' ? (
+                                                            <div 
+                                                                onClick={() => fileInputRef.current.click()}
+                                                                className="flex flex-col items-center justify-center cursor-pointer group p-4 max-w-md w-full rounded-2xl hover:bg-white/5 transition-all text-center"
+                                                            >
+                                                                <div className="w-16 h-16 rounded-full bg-obsidian text-neon flex items-center justify-center text-2xl mb-3 shadow-xl border-2 border-slate-800 group-hover:scale-110 group-hover:border-neon transition-all">
+                                                                    <i className="fa-solid fa-play ml-1"></i>
+                                                                </div>
+                                                                <p className="font-black text-sm sm:text-base text-white tracking-tight">
+                                                                    Klik di Sini untuk Memilih / Mengunggah Video Lokal
+                                                                </p>
+                                                                <p className="text-xs text-slate-400 mt-1 max-w-sm">
+                                                                    Video akan diputar langsung dan tersinkronisasi otomatis dengan baris MBM di sebelah kanan.
+                                                                </p>
+                                                                <div className="mt-3 flex items-center gap-2">
+                                                                    <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700">MP4</span>
+                                                                    <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700">MKV</span>
+                                                                    <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700">MOV</span>
+                                                                    <span className="bg-slate-800 text-slate-300 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-700">WebM</span>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="w-full max-w-lg p-5 bg-slate-900/90 rounded-2xl border border-slate-700/80 shadow-2xl space-y-3.5 text-left animate-in fade-in zoom-in-95">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-2 text-white font-black text-xs sm:text-sm">
+                                                                        <span className="w-2.5 h-2.5 rounded-full bg-neon animate-pulse"></span>
+                                                                        <span>Monitoring Link YouTube / Video URL</span>
+                                                                    </div>
+                                                                    <span className="text-[10px] font-bold text-slate-400 bg-black/40 px-2 py-0.5 rounded font-mono">
+                                                                        Auto-Sync MBM & AI
+                                                                    </span>
+                                                                </div>
+
+                                                                <p className="text-[11px] text-slate-300 leading-relaxed">
+                                                                    Tempel link video publik dari YouTube atau link streaming langsung (.mp4). Gemini AI dapat membaca visual adegan dan dialog percakapan langsung dari link tersebut.
+                                                                </p>
+
+                                                                <div className="flex gap-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        value={inputVideoUrl}
+                                                                        onChange={(e) => setInputVideoUrl(e.target.value)}
+                                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleLoadVideoUrl(); }}
+                                                                        placeholder="Contoh: https://www.youtube.com/watch?v=..."
+                                                                        className="flex-1 bg-black/70 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-neon font-mono shadow-inner"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleLoadVideoUrl()}
+                                                                        className="px-4 py-2.5 bg-neon hover:bg-neon-dark text-obsidian font-black text-xs rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0"
+                                                                    >
+                                                                        <i className="fa-solid fa-link text-xs"></i>
+                                                                        <span>Muat Link</span>
+                                                                    </button>
+                                                                </div>
+
+                                                                {/* Quick Sample Link Presets */}
+                                                                <div className="pt-2 border-t border-slate-800 flex items-center justify-between gap-2 flex-wrap">
+                                                                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                                                        Contoh Link Siaran:
+                                                                    </span>
+                                                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const sample = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+                                                                                setInputVideoUrl(sample);
+                                                                                handleLoadVideoUrl(sample);
+                                                                            }}
+                                                                            className="text-[10px] font-bold bg-white/5 hover:bg-red-500/20 text-slate-300 hover:text-red-300 border border-white/10 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1"
+                                                                        >
+                                                                            <i className="fa-brands fa-youtube text-red-500 text-[10px]"></i>
+                                                                            <span>Sample YouTube</span>
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                const sample = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
+                                                                                setInputVideoUrl(sample);
+                                                                                handleLoadVideoUrl(sample);
+                                                                            }}
+                                                                            className="text-[10px] font-bold bg-white/5 hover:bg-sky-500/20 text-slate-300 hover:text-sky-300 border border-white/10 px-2.5 py-1 rounded-lg transition-all flex items-center gap-1"
+                                                                        >
+                                                                            <i className="fa-solid fa-play text-sky-400 text-[9px]"></i>
+                                                                            <span>Sample MP4 CDN</span>
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
                                                         {isVideoZoomed && (
                                                             <button 
                                                                 onClick={(e) => {
@@ -4884,6 +5442,26 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                     </div>
                                                 </div>
                                             )}
+
+                                            {/* SINOPSIS / RINGKASAN GLOBAL (ATTACHMENT 1) DIGABUNG TEPAT DI BAWAH PREVIEW VIDEO */}
+                                            <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 sm:p-5 space-y-2.5 mt-2">
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                                        <span className="text-[11px] font-black text-amber-900 uppercase tracking-wider">
+                                                            SINOPSIS / RINGKASAN GLOBAL
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-[10px] text-amber-700 font-bold">Diekspor ke Excel</span>
+                                                </div>
+                                                <textarea 
+                                                    value={synopsis}
+                                                    onChange={(e) => setSynopsis(e.target.value)}
+                                                    rows={6}
+                                                    placeholder="Tuliskan atau hasil generate sinopsis global tayangan..."
+                                                    className="w-full min-h-[140px] text-[13px] text-slate-800 font-medium leading-relaxed bg-white/95 p-3.5 rounded-xl border border-amber-200/80 outline-none focus:bg-white resize-y shadow-inner transition-all"
+                                                />
+                                            </div>
                                         </>
                                     )}
                                 </div>
@@ -4919,7 +5497,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                         onMouseDown={(e) => handleStartDrag('tools', e)}
                                         onTouchStart={(e) => handleStartDrag('tools', e)}
                                         className="flex items-center justify-between pb-2 border-b border-slate-100 cursor-grab active:cursor-grabbing select-none"
-                                        title="Klik & tahan di sini untuk menggeser box Tools (Drag)"
+                                        title="Klik & tahan di sini untuk menggeser box Settingan (Drag)"
                                     >
                                         <div className="window-dots">
                                             <div className="window-dot"></div>
@@ -4939,27 +5517,27 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                     }
                                                 }}
                                                 className="w-6 h-6 rounded-lg hover:bg-slate-100 hover:text-slate-800 flex items-center justify-center transition-all"
-                                                title="Reset parameter & kembalikan posisi awal"
+                                                title="Reset parameter Box Settingan & kembalikan posisi awal"
                                             >
                                                 <i className="fa-solid fa-rotate-left"></i>
                                             </button>
                                             <button 
                                                 onClick={() => {
                                                     setIsToolsCollapsed(!isToolsCollapsed);
-                                                    notify(isToolsCollapsed ? "Box Tools diperluas" : "Box Tools diminimalkan");
+                                                    notify(isToolsCollapsed ? "Box Settingan diperluas" : "Box Settingan diminimalkan");
                                                 }}
                                                 className="w-6 h-6 rounded-lg hover:bg-slate-100 hover:text-slate-800 flex items-center justify-center transition-all"
-                                                title={isToolsCollapsed ? "Perbesar Box Tools" : "Kecilkan / Minimize Box Tools"}
+                                                title={isToolsCollapsed ? "Perbesar Box Settingan" : "Kecilkan / Minimize Box Settingan"}
                                             >
                                                 <i className={`fa-solid ${isToolsCollapsed ? 'fa-plus' : 'fa-minus'}`}></i>
                                             </button>
                                             <button 
                                                 onClick={() => {
                                                     setIsToolsVisible(false);
-                                                    notify("Box Tools ditutup. Klik tombol di bawah video untuk membuka kembali.");
+                                                    notify("Box Settingan ditutup. Klik tombol di bawah video untuk membuka kembali.");
                                                 }}
                                                 className="w-6 h-6 rounded-lg hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition-all"
-                                                title="Tutup / Sembunyikan Box Tools"
+                                                title="Tutup / Sembunyikan Box Settingan"
                                             >
                                                 <i className="fa-solid fa-xmark"></i>
                                             </button>
@@ -5537,25 +6115,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                 </div>
                                             </div>
 
-                                            {/* SEKSI 3: SINOPSIS / RINGKASAN */}
-                                            <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 sm:p-5 space-y-2.5">
-                                                <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                                                        <span className="text-[11px] font-black text-amber-900 uppercase tracking-wider">
-                                                            SINOPSIS / RINGKASAN GLOBAL
-                                                        </span>
-                                                    </div>
-                                                    <span className="text-[10px] text-amber-700 font-bold">Diekspor ke Excel</span>
-                                                </div>
-                                                <textarea 
-                                                    value={synopsis}
-                                                    onChange={(e) => setSynopsis(e.target.value)}
-                                                    rows={7}
-                                                    placeholder="Tuliskan atau hasil generate sinopsis global tayangan..."
-                                                    className="w-full min-h-[170px] text-[13px] text-slate-800 font-medium leading-relaxed bg-white/95 p-3.5 rounded-xl border border-amber-200/80 outline-none focus:bg-white resize-y shadow-inner transition-all"
-                                                />
-                                            </div>
+
                                         </>
                                     )}
 
@@ -5565,12 +6125,12 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                     onClick={() => {
                                         setIsToolsVisible(true);
                                         setIsToolsCollapsed(false);
-                                        notify("Box Tools dibuka kembali");
+                                        notify("Box Settingan dibuka kembali");
                                     }}
                                     className="w-full py-4 px-6 rounded-2xl border-2 border-dashed border-slate-300 hover:border-slate-400 bg-white/80 hover:bg-white text-slate-600 hover:text-slate-900 text-xs font-black flex items-center justify-center gap-2.5 transition-all shadow-sm group"
                                 >
                                     <i className="fa-solid fa-sliders text-blue-600 group-hover:scale-110 transition-transform"></i>
-                                    <span>Buka Kembali Box Menu & Tools</span>
+                                    <span>Buka Kembali Box Settingan & Parameter</span>
                                 </button>
                             )}
 
@@ -6141,7 +6701,185 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                     {/* ======================================================== */}
                     {/* MODAL TEMPEL / IMPOR DATA RATING NIELSEN (FITUR C)        */}
                     {/* ======================================================== */}
+                    {/* ======================================================== */}
+                    {/* DYNAMIC ISLAND: FLOATING PROJECT SWITCHER (MAX 5)       */}
+                    {/* Tetap melayang di bawah (fixed bottom) saat scroll,       */}
+                    {/* otomatis tersembunyi saat Fullscreen / Layar Penuh      */}
+                    {/* ======================================================== */}
+                    {!isVideoZoomed && (
+                        <div className="fixed bottom-5 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 select-none animate-in fade-in slide-in-from-bottom-4 duration-300 pointer-events-auto">
+                            <div className="bg-slate-950/85 hover:bg-slate-950/95 backdrop-blur-xl border border-white/15 hover:border-white/25 shadow-[0_16px_45px_rgba(0,0,0,0.75)] rounded-full px-3 py-2 flex items-center gap-1.5 sm:gap-2 transition-all">
+                                
+                                {/* Label Pulau / Pulsating Indicator */}
+                                <div className="flex items-center gap-2 pl-1.5 pr-2 border-r border-white/10">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-neon animate-pulse shadow-[0_0_10px_#ccff00]"></span>
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-300 hidden md:inline">
+                                        PROYEK
+                                    </span>
+                                </div>
+
+                                {/* List Slot Proyek (Maksimal 5) */}
+                                <div className="flex items-center gap-1.5">
+                                    {projects.map((p) => {
+                                        const isActive = p.id === activeProjectId;
+                                        return (
+                                            <div
+                                                key={p.id}
+                                                onClick={() => handleSwitchProject(p.id)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs cursor-pointer transition-all group ${
+                                                    isActive
+                                                        ? 'bg-neon text-obsidian font-black shadow-[0_0_18px_rgba(204,255,0,0.45)] scale-105'
+                                                        : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white font-bold border border-white/5 hover:border-white/20'
+                                                }`}
+                                                title={isActive ? `${p.name} (Sedang Aktif)` : `Beralih ke ${p.name}`}
+                                            >
+                                                
+                                                
+                                                {editingProjectId === p.id ? (
+                                                    <input
+                                                        type="text"
+                                                        value={editingProjectName}
+                                                        autoFocus
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        onChange={(e) => setEditingProjectName(e.target.value)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') handleSaveRenameProject(p.id);
+                                                            if (e.key === 'Escape') setEditingProjectId(null);
+                                                        }}
+                                                        onBlur={() => handleSaveRenameProject(p.id)}
+                                                        className="w-20 px-1 py-0.5 text-xs font-black bg-black text-neon rounded border border-black focus:outline-none"
+                                                    />
+                                                ) : (
+                                                    <span onDoubleClick={(e) => handleStartRenameProject(p, e)}>
+                                                        {p.name}
+                                                    </span>
+                                                )}
+
+                                                {/* Baris MBM Badge */}
+                                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
+                                                    isActive ? 'bg-black/20 text-obsidian' : 'bg-white/10 text-slate-400'
+                                                }`}>
+                                                    {isActive ? mbmRows.length : (p.rowCount || 0)}
+                                                </span>
+
+                                                {/* Rename trigger icon */}
+                                                {isActive && editingProjectId !== p.id && (
+                                                    <button
+                                                        onClick={(e) => handleStartRenameProject(p, e)}
+                                                        className="opacity-0 group-hover:opacity-100 hover:text-black transition-opacity text-[9px] ml-0.5"
+                                                        title="Ganti nama project"
+                                                    >
+                                                        <i className="fa-solid fa-pencil"></i>
+                                                    </button>
+                                                )}
+
+                                                {/* Delete button (if > 1 projects) */}
+                                                {!isActive && projects.length > 1 && (
+                                                    <button
+                                                        onClick={(e) => handleDeleteProject(p.id, e)}
+                                                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 w-4 h-4 rounded-full flex items-center justify-center transition-all text-[9px] ml-0.5"
+                                                        title={`Hapus slot ${p.name}`}
+                                                    >
+                                                        <i className="fa-solid fa-xmark"></i>
+                                                    </button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Tombol Tambah Project Baru (Jika belum 5) */}
+                                <div className="flex items-center gap-1.5 pl-1 border-l border-white/10">
+                                    {projects.length < MAX_PROJECTS ? (
+                                        <button
+                                            onClick={handleAddNewProject}
+                                            className="w-7 h-7 rounded-full bg-white/10 hover:bg-neon hover:text-obsidian text-slate-300 flex items-center justify-center text-xs font-black transition-all hover:scale-110 active:scale-95 shadow-sm"
+                                            title={`Tambah Slot Project Baru (${projects.length}/${MAX_PROJECTS})`}
+                                        >
+                                            <i className="fa-solid fa-plus text-[10px]"></i>
+                                        </button>
+                                    ) : (
+                                        <span 
+                                            className="text-[9px] font-mono font-black text-neon bg-neon/15 border border-neon/30 px-2 py-0.5 rounded-full tracking-wider" 
+                                            title="Batas maksimal 5 project aktif untuk menjaga browser tetap ringan & cepat"
+                                        >
+                                            5/5 MAX
+                                        </span>
+                                    )}
+                                </div>
+
+                            </div>
+                        </div>
+                    )}
+
                     {!isVideoZoomed && renderRatingModal()}
+
+                    {/* MODAL MONITORING LINK YOUTUBE / VIDEO URL */}
+                    {showUrlInputModal && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
+                            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
+                                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center text-sm shadow-md">
+                                            <i className="fa-brands fa-youtube"></i>
+                                        </div>
+                                        <div>
+                                            <h3 className="font-black text-sm text-white">Monitoring Link YouTube / Video URL</h3>
+                                            <p className="text-[11px] text-slate-400">Putar & sinkronkan MBM langsung dari link video online.</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowUrlInputModal(false)}
+                                        className="w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center text-xs"
+                                    >
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                        URL Video atau YouTube:
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={inputVideoUrl}
+                                            autoFocus
+                                            onChange={(e) => setInputVideoUrl(e.target.value)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') handleLoadVideoUrl(); }}
+                                            placeholder="https://www.youtube.com/watch?v=..."
+                                            className="flex-1 bg-black/80 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-neon font-mono shadow-inner"
+                                        />
+                                        <button
+                                            onClick={() => handleLoadVideoUrl()}
+                                            className="px-4 py-2.5 bg-neon hover:bg-neon-dark text-obsidian font-black text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0"
+                                        >
+                                            Muat Video
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800/80 space-y-2 text-[11px] text-slate-400">
+                                    <p className="font-bold text-slate-300">Format yang Didukung:</p>
+                                    <ul className="list-disc list-inside space-y-1 text-[10px]">
+                                        <li><strong className="text-white">YouTube Publik</strong>: <code className="text-neon">youtube.com/watch?v=...</code> atau <code className="text-neon">youtu.be/...</code></li>
+                                        <li><strong className="text-white">Direct Video File</strong>: Link streaming publik berakhiran <code className="text-sky-300">.mp4</code> atau <code className="text-sky-300">.webm</code></li>
+                                        <li><strong className="text-slate-400">TikTok / Instagram</strong>: Unduh file lokal terlebih dahulu untuk akurasi visual & dialog.</li>
+                                    </ul>
+                                </div>
+
+                                <div className="flex items-center justify-between pt-2">
+                                    <span className="text-[10px] text-slate-500 font-mono">Auto-sync dengan MBM</span>
+                                    <button
+                                        onClick={() => setShowUrlInputModal(false)}
+                                        className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+                                    >
+                                        Tutup
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {false && (
                         <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
                             <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4">
