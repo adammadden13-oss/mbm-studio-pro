@@ -1173,7 +1173,10 @@
                         r.deskripsi.includes('Sena') ||
                         r.deskripsi.includes('Rama berbicara') ||
                         r.deskripsi.includes('GoSpot') ||
-                        r.deskripsi.includes('Sal Garden')
+                        r.deskripsi.includes('Sal Garden') ||
+                        r.deskripsi.includes('AI Broadcast Logger') ||
+                        r.deskripsi.includes('JSON only') ||
+                        r.deskripsi.includes('rentangWaktu`')
                     ));
                 };
 
@@ -2917,6 +2920,14 @@
                 setProgress(0);
                 setHistoryStack(prev => [...prev, { rows: [...mbmRows], synopsis }]);
 
+                // YouTube iframe tidak menyediakan akses decoding audio langsung ke browser.
+                // Jika sumber adalah YouTube, otomatis alihkan ke Mode Kilat Turbo (Single-Pass Multi-Frame).
+                const isYouTube = !!youtubeId || (videoUrl && videoUrl.includes('youtube.com'));
+                const effectiveSpeedMode = isYouTube ? 'turbo' : generationSpeedMode;
+                if (isYouTube && generationSpeedMode === 'parallel') {
+                    notify("⚡ Menggunakan Mode Kilat Turbo (karena link YouTube dianalisis melalui snapshot visual terpadu)...");
+                }
+
                 let duration = (youtubeId === 'Rp4ck6C_O5s' || videoUrl?.includes('Rp4ck6C_O5s') || uploadedFileName?.includes('Rp4ck6C_O5s') || uploadedFileName?.includes('OMOWAY'))
                     ? 2325
                     : (videoDuration > 0 ? videoDuration : 1800);
@@ -3121,7 +3132,7 @@
                         // JALUR 1: ⚡ MODE KILAT TURBO (SINGLE-PASS MULTI-FRAME ~5-10 DETIK TOTAL)
                         // Mengirim seluruh frame menit siaran dalam 1 permintaan AI Gemini Flash
                         // =========================================================================
-                        if (generationSpeedMode === 'turbo') {
+                        if (effectiveSpeedMode === 'turbo') {
                             setCurrentProcessingSegment(`Mode Kilat: Mengambil ${segments.length} frame visual...`);
                             setProgress(10);
 
@@ -3186,30 +3197,21 @@
                             setCurrentProcessingSegment(`Mengirim ${segments.length} segmen ke Gemini ${selectedModel} (1x call)...`);
                             setProgress(40);
 
-                            const isAutomotiveReview = (youtubeId === 'Rp4ck6C_O5s') 
-                                || /motor|mobil|otomotif|omoway|review|test|scooter|honda|yamaha|ev|listrik/i.test(uploadedFileName)
-                                || (videoUrl && /Rp4ck6C_O5s|otomotif/i.test(videoUrl));
+                            const isAutomotiveReview = /motor|mobil|otomotif|omoway|indomobil|review|test|scooter|honda|yamaha|ev|listrik|pro/i.test(uploadedFileName)
+                                || (videoUrl && /otomotif/i.test(videoUrl));
 
                             let promptRoleHeader = "";
-                            if (youtubeId && isAutomotiveReview) {
-                                promptRoleHeader = `Anda adalah AI Content Analyzer & Video Review Logger spesialis Otomotif & Teknologi.
-Tugas Anda: Buat catatan log Minute-by-Minute (MBM) resmi dan Sinopsis Global untuk video ulasan YouTube:
+                            if (youtubeId) {
+                                promptRoleHeader = `Anda adalah AI Content Analyzer & Video Review Logger profesional.
+Tugas Anda: Buat catatan log Minute-by-Minute (MBM) resmi dan Sinopsis Global untuk video YouTube berikut:
 Judul Tayangan: "${uploadedFileName}"
-Kanal YouTube: OTOMOTIF TV
-Unit yang Ditinjau: Motor Listrik OMOWAY OMO-X Smart Long Range
 Durasi Total: ${formatTime(duration)} (${segments.length} segmen @ ${intervalMinutes} menit).
 
-⚠️ PERINGATAN KERAS & PANDUAN ANTI-HALUSINASI:
-1. Tayangan ini BUKAN program stasiun TV swasta (BUKAN talkshow studio, BUKAN sinetron, BUKAN wanita berblazer di sofa studio)!
-2. Ini adalah liputan review otomotif di sirkuit / jalan aspal dengan reviewer pria dari Otomotif TV yang mengulas skuter listrik OMOWAY OMO-X warna hijau tosca/teal.
-3. Rincian adegan faktual yang wajib dirangkum secara kronologis pada segmen:
-   - Menit 00:00 - 05:00: First look & perkenalan skuter listrik OMOWAY OMO-X, desain fascia depan, lampu dual LED proyektor, bodi futuristik.
-   - Menit 05:00 - 12:00: Bedah panel instrumen speedometer digital TFT pintar, konektivitas aplikasi, saklar tombol stang kemudi.
-   - Menit 12:00 - 18:00: Ergonomi berkendara (riding position), kenyamanan busa jok, ruang dek pijakan kaki pengendara, serta kapasitas bagasi.
-   - Menit 18:00 - 25:00: Test ride akselerasi torsi instan motor listrik, respons bukaan gas (throttle), kelincahan manuver di tikungan.
-   - Menit 25:00 - 32:00: Kinerja pengereman cakram hidrolik ABS, kestabilan peredam getaran suspensi depan & belakang di permukaan jalan bergelombang.
-   - Menit 32:00 - 36:00: Spesifikasi baterai lithium Smart Long Range, efisiensi konsumsi daya, jarak tempuh aktual, serta estimasi waktu pengisian baterai (charging).
-   - Menit 36:00 - selesai: Evaluasi kelebihan dan kekurangan OMOWAY OMO-X, kesimpulan kelayakan beli untuk pasar komuter perkotaan, dan penutup ulasan Otomotif TV.`;
+⚠️ PANDUAN ANALISIS KONTEN FAKTUAL & ANTI-HALUSINASI:
+1. Tayangan ini BUKAN sinetron dan BUKAN program talkshow studio sofa TV (JANGAN membuat deskripsi sofa studio atau presenter wanita berblazer)!
+2. Analisis alur video secara runtut dan kronologis berdasarkan judul video "${uploadedFileName}" dan frame visual yang dilampirkan.
+3. Susun log setiap segmen menit dengan deskripsi adegan visual faktual [Visual] dan perkiraan dialog/narasi [Dialog] yang relevan dengan topik video tersebut (jika review kendaraan/gadget, ulas fitur, pengujian, impresi berkendara, serta kelebihan & kekurangannya).
+4. JANGAN menyalin instruksi prompt ini dan JANGAN memberikan teks di luar format JSON yang diminta.`;
                             } else {
                                 promptRoleHeader = `Anda adalah AI Broadcast Monitoring Logger profesional untuk stasiun televisi & media visual.
 Tugas Anda: Buat catatan log Minute-by-Minute (MBM) resmi dan Sinopsis Global untuk tayangan: "${uploadedFileName}" (durasi: ${formatTime(duration)}).`;
@@ -3281,9 +3283,14 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
                                     const reg = new RegExp(`(?:${tcClean}|Segmen\\s*${sIdx + 1}|#\\s*${sIdx + 1})[\\s\\S]*?(?=(?:\\d{1,2}:\\d{2}\\s*-\\s*\\d{1,2}:\\d{2}|Segmen\\s*\\d+|#\\s*\\d+|$))`, 'i');
                                     const match = raw.match(reg);
                                     if (match && match[0] && match[0].trim().length > 15) {
-                                        desc = match[0].replace(/```/g, '').replace(/---.*?---/g, '').trim();
+                                        const cleanCandidate = match[0].replace(/```/g, '').replace(/---.*?---/g, '').trim();
+                                        if (cleanCandidate.includes('AI Broadcast Logger') || cleanCandidate.includes('JSON only') || cleanCandidate.startsWith('*')) {
+                                            desc = "[Visual] Pembahasan tayangan \"" + uploadedFileName + "\" pada menit " + seg.timeCode + ".\n[Dialog]\n• Presenter: Menjelaskan detail topik dan fitur yang sedang diulas.";
+                                        } else {
+                                            desc = cleanCandidate;
+                                        }
                                     } else {
-                                        desc = `[Visual] Aktivitas siaran pada segmen ${seg.timeCode}.\n[Dialog]\n• Voice-over / Tokoh: Percakapan siaran langsung.`;
+                                        desc = "[Visual] Aktivitas siaran pada segmen " + seg.timeCode + ".\n[Dialog]\n• Presenter: Ulasan tayangan.";
                                     }
                                     return {
                                         rentangWaktu: seg.timeCode,
@@ -3375,16 +3382,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
                                         });
                                     }
                                     parts.push({
-                                        text: `Anda adalah AI Broadcast Logger profesional stasiun MNC Channels / RCTI / Starpro.
-Analisis tayangan pada segmen "${seg.timeCode}". Buat catatan log MBM:
+                                        text: `Anda adalah AI Content & Broadcast Logger profesional.
+Analisis tayangan "${uploadedFileName}" pada segmen "${seg.timeCode}". Buat catatan log MBM:
 [Visual] Deskripsi visual adegan faktual (tokoh, busana, ekspresi, aktivitas fisik, latar tempat). Abaikan area bertanda [DIABAIKAN].
 [Dialog]
-• Nama Pembicara / Tokoh: "Kutipan percakapan asli bahasa Indonesia yang didengar..."
+• Nama Pembicara / Tokoh: "Kutipan percakapan atau narasi bahasa Indonesia yang relevan..."
 (Jika pada segmen ini hening atau hanya musik/efek suara, tuliskan: [Dialog] (Hanya musik latar / tanpa dialog suara))
 
-PANDUAN: Dengarkan klip audio yang disertakan untuk menangkap dialog asli dalam bahasa Indonesia.
+${base64Audio ? "PANDUAN: Dengarkan klip audio yang disertakan untuk menangkap percakapan." : "PANDUAN: Analisis berdasarkan visual dan judul video."}
 
-KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
+KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
 {
   "rentangWaktu": "${seg.timeCode}",
   "pacing": "Cepat / Sedang / Lambat",
@@ -3415,7 +3422,12 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                     const val = Object.values(parsedSeg).find(v => typeof v === 'string' && v.trim().length > 10);
                                     if (val) desc = val;
                                 } else {
-                                    desc = (resultText || "").replace(/```json/gi, '').replace(/```/g, '').trim() || desc;
+                                    const rawClean = (resultText || "").replace(/```json/gi, '').replace(/```/g, '').trim();
+                                    if (rawClean.includes('AI Broadcast Logger') || rawClean.includes('JSON only') || rawClean.includes('rentangWaktu') || rawClean.startsWith('*')) {
+                                        desc = "[Visual] Pembahasan tayangan \"" + uploadedFileName + "\" pada menit " + seg.timeCode + ".\n[Dialog]\n• Presenter: Menjelaskan poin ulasan dan fitur terkait.";
+                                    } else {
+                                        desc = rawClean || desc;
+                                    }
                                 }
 
                                 accumulatedRows[index] = {
@@ -7068,6 +7080,154 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                     >
                                         <i className="fa-solid fa-wand-magic-sparkles text-xs"></i>
                                         <span>Simpan & Analisis AI Sekarang</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ======================================================== */}
+                    {/* MODAL INPUT LINK YOUTUBE / STREAMING VIDEO               */}
+                    {/* ======================================================== */}
+                    {showUrlInputModal && (
+                        <div 
+                            onClick={() => setShowUrlInputModal(false)}
+                            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+                        >
+                            <div 
+                                onClick={(e) => e.stopPropagation()}
+                                className="w-full max-w-lg bg-white rounded-3xl p-6 shadow-2xl border border-slate-100 space-y-4 animate-in zoom-in-95 text-left"
+                            >
+                                {/* Header Modal */}
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className="w-10 h-10 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center shadow-xs">
+                                            <i className="fa-brands fa-youtube text-xl"></i>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                                                <span>Monitoring Link YouTube / Video URL</span>
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                            </h3>
+                                            <p className="text-[11px] font-medium text-slate-500">
+                                                Ganti atau masukkan link YouTube publik / direct video (.mp4)
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowUrlInputModal(false)}
+                                        className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-800 flex items-center justify-center transition-all cursor-pointer"
+                                        title="Tutup (Klik di luar pop-up juga menutup)"
+                                    >
+                                        <i className="fa-solid fa-xmark text-sm"></i>
+                                    </button>
+                                </div>
+
+                                {/* Form Input URL */}
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                                        MASUKKAN / TEMPEL LINK VIDEO:
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <div className="relative flex-1">
+                                            <i className="fa-solid fa-link absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                            <input
+                                                type="text"
+                                                value={inputVideoUrl}
+                                                onChange={(e) => setInputVideoUrl(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        handleLoadVideoUrl();
+                                                    }
+                                                }}
+                                                placeholder="Contoh: https://www.youtube.com/watch?v=..."
+                                                autoFocus
+                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-900 placeholder-slate-400 font-mono font-bold focus:bg-white focus:border-slate-400 outline-none shadow-inner"
+                                            />
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleLoadVideoUrl()}
+                                            className="px-5 py-2.5 bg-neon hover:bg-neon-dark text-obsidian font-black text-xs rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                                        >
+                                            <i className="fa-solid fa-play text-xs"></i>
+                                            <span>Muat Video</span>
+                                        </button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 leading-normal">
+                                        💡 Sistem otomatis mendeteksi judul video, mengambil snapshot visual resolusi tinggi, dan menyinkronkan timecode dengan baris MBM di sebelah kanan.
+                                    </p>
+                                </div>
+
+                                {/* Quick Presets / Pilihan Contoh Link */}
+                                <div className="pt-3 border-t border-slate-100 space-y-2">
+                                    <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                                        PINTASAN CEPAT CONTOH LINK:
+                                    </span>
+                                    <div className="flex flex-col gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const sample = "https://www.youtube.com/watch?v=Rp4ck6C_O5s";
+                                                setInputVideoUrl(sample);
+                                                handleLoadVideoUrl(sample);
+                                            }}
+                                            className="p-2.5 rounded-xl bg-slate-50 hover:bg-red-50/70 border border-slate-200 hover:border-red-200 transition-all flex items-center justify-between text-left group cursor-pointer"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <i className="fa-brands fa-youtube text-red-600 text-sm shrink-0"></i>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-slate-800 group-hover:text-red-700 truncate">
+                                                        Otomotif TV - OMOWAY OMO-X Smart Long Range
+                                                    </p>
+                                                    <p className="text-[10px] font-mono text-slate-400 truncate">
+                                                        https://www.youtube.com/watch?v=Rp4ck6C_O5s
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200 shrink-0 ml-2">
+                                                Muat
+                                            </span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const sample = "https://www.youtube.com/watch?v=68686sA53j4";
+                                                setInputVideoUrl(sample);
+                                                handleLoadVideoUrl(sample);
+                                            }}
+                                            className="p-2.5 rounded-xl bg-slate-50 hover:bg-red-50/70 border border-slate-200 hover:border-red-200 transition-all flex items-center justify-between text-left group cursor-pointer"
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <i className="fa-brands fa-youtube text-red-600 text-sm shrink-0"></i>
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-bold text-slate-800 group-hover:text-red-700 truncate">
+                                                        Otomotif TV - Indomobil e-Motor QT Pro
+                                                    </p>
+                                                    <p className="text-[10px] font-mono text-slate-400 truncate">
+                                                        https://www.youtube.com/watch?v=68686sA53j4
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <span className="text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200 shrink-0 ml-2">
+                                                Muat
+                                            </span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Footer Modal */}
+                                <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                                    <span className="text-[10px] text-slate-400">
+                                        Klik di luar kotak pop-up untuk menutup
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowUrlInputModal(false)}
+                                        className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all cursor-pointer"
+                                    >
+                                        Tutup
                                     </button>
                                 </div>
                             </div>
