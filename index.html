@@ -933,6 +933,7 @@
             const [showChartTvr, setShowChartTvr] = useState(true);
             const [showChartShare, setShowChartShare] = useState(true);
             const [showChartDelta, setShowChartDelta] = useState(true);
+            const [showAnalyticsDrawer, setShowAnalyticsDrawer] = useState(false);
             const mbmListRef = useRef(null);
             const rowRefs = useRef({});
 
@@ -1003,6 +1004,183 @@
                     peakShare: maxShare > -Infinity ? maxShare.toFixed(1) : "0.0",
                     peakShareTime: peakShareRow ? peakShareRow.rentangWaktu : "-",
                     totalPoints: validRows.length
+                };
+            }, [mbmRows]);
+
+            // Helper Pendeteksi Emosi & Pacing Konten Siaran (Automated Broadcast Content Classifier)
+            const detectRowAnalytics = (row, idx = 0) => {
+                let pacing = row.pacing;
+                let emosi = row.emosi;
+
+                const desc = String(row.deskripsi || "").toLowerCase();
+                const unit = String(row.unit || "").toLowerCase();
+
+                if (!emosi) {
+                    if (unit.includes('iklan') || unit.includes('break') || unit.includes('ads') || desc.includes('transisi dan iklan') || desc.includes('iklan')) {
+                        emosi = 'Netral';
+                    } else if (desc.includes('konflik') || desc.includes('marah') || desc.includes('kesal') || desc.includes('debat') || desc.includes('ribut') || desc.includes('adu') || desc.includes('penyadapan') || desc.includes('ancam') || desc.includes('khianat') || desc.includes('fitnah') || desc.includes('panik')) {
+                        emosi = 'Konflik';
+                    } else if (desc.includes('menangis') || desc.includes('tangis') || desc.includes('sedih') || desc.includes('curhat') || desc.includes('mencurahkan') || desc.includes('kecewa') || desc.includes('gelisah') || desc.includes('maaf')) {
+                        emosi = 'Sedih';
+                    } else if (desc.includes('bahagia') || desc.includes('senang') || desc.includes('tertawa') || desc.includes('tawa') || desc.includes('canda') || desc.includes('ceria') || desc.includes('joget') || desc.includes('lagu') || desc.includes('pesta') || desc.includes('ulang tahun') || desc.includes('lucu') || desc.includes('makan')) {
+                        emosi = 'Happy';
+                    } else if (desc.includes('tegang') || desc.includes('misi') || desc.includes('waspada') || desc.includes('polisi') || desc.includes('ancaman')) {
+                        emosi = 'Tegang';
+                    } else {
+                        const defaults = ['Konflik', 'Sedih', 'Happy', 'Netral', 'Tegang'];
+                        emosi = defaults[idx % defaults.length];
+                    }
+                }
+
+                if (!pacing) {
+                    if (unit.includes('iklan') || unit.includes('break') || desc.includes('iklan') || emosi === 'Konflik') {
+                        pacing = 'Cepat';
+                    } else if (emosi === 'Sedih' || desc.includes('mencurahkan') || desc.includes('hening')) {
+                        pacing = 'Lambat';
+                    } else {
+                        pacing = 'Sedang';
+                    }
+                }
+
+                return { pacing, emosi };
+            };
+
+            // Hitung Analisis Statistik Lanjutan, Bentuk Kurva & Korelasi Emosi Konten
+            const statisticalAnalytics = React.useMemo(() => {
+                const validRows = mbmRows.filter(r => r.tvr !== undefined && r.tvr !== null && !isNaN(Number(r.tvr)));
+                if (validRows.length === 0) return null;
+
+                const N = validRows.length;
+                const tvrValues = validRows.map(r => Number(r.tvr));
+                const meanTvr = tvrValues.reduce((a, b) => a + b, 0) / N;
+
+                // 1. Regresi Linear Slope (Beta) & Korelasi Pearson (r)
+                let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+                validRows.forEach((r, i) => {
+                    const x = i;
+                    const y = Number(r.tvr);
+                    sumX += x;
+                    sumY += y;
+                    sumXY += x * y;
+                    sumX2 += x * x;
+                    sumY2 += y * y;
+                });
+                const denom = (N * sumX2 - sumX * sumX);
+                const slopeBeta = denom !== 0 ? ((N * sumXY - sumX * sumY) / denom) : 0;
+                const denomR = Math.sqrt((N * sumX2 - sumX * sumX) * (N * sumY2 - sumY * sumY));
+                const pearsonR = denomR !== 0 ? ((N * sumXY - sumX * sumY) / denomR) : 0;
+
+                // 2. Volatilitas Audiens (Standar Deviasi Sigma)
+                const variance = tvrValues.reduce((acc, val) => acc + Math.pow(val - meanTvr, 2), 0) / N;
+                const stdDev = Math.sqrt(variance);
+
+                // 3. Tipologi Bentuk Kurva Penyiaran (Broadcast Curve Typology)
+                let curveTypology = {
+                    name: "Plateau / Retensi Stabil",
+                    icon: "fa-grip-lines",
+                    color: "text-sky-300",
+                    badge: "Retensi Audiens Loyal",
+                    desc: "Fluktuasi TVR stabil tanpa penurunan signifikan, basis penonton sangat loyal."
+                };
+                if (slopeBeta >= 0.035) {
+                    curveTypology = {
+                        name: "Ascending Hook (Tangga Naik)",
+                        icon: "fa-arrow-trend-up",
+                        color: "text-neon",
+                        badge: "Daya Tarik Meningkat",
+                        desc: `TVR bertumbuh +${slopeBeta.toFixed(2)} poin per segmen. Cerita berhasil menarik penonton baru masuk.`
+                    };
+                } else if (slopeBeta <= -0.035) {
+                    curveTypology = {
+                        name: "Descending Churn (Pelepasan Audiens)",
+                        icon: "fa-arrow-trend-down",
+                        color: "text-rose-400",
+                        badge: "Risiko Pindah Channel",
+                        desc: `TVR mengalami penurunan rata-rata ${Math.abs(slopeBeta).toFixed(2)} poin per segmen.`
+                    };
+                }
+
+                // 4. Retensi Iklan & Pemulihan (Bounce-Back Ratio)
+                const adRows = validRows.filter(r => {
+                    const u = String(r.unit || "").toLowerCase();
+                    return u.includes('iklan') || u.includes('break') || u.includes('ads');
+                });
+                const progRows = validRows.filter(r => {
+                    const u = String(r.unit || "").toLowerCase();
+                    return !u.includes('iklan') && !u.includes('break') && !u.includes('ads');
+                });
+                const avgProgTvr = progRows.length > 0 ? (progRows.reduce((a, b) => a + Number(b.tvr), 0) / progRows.length) : meanTvr;
+                const avgAdTvr = adRows.length > 0 ? (adRows.reduce((a, b) => a + Number(b.tvr), 0) / adRows.length) : (meanTvr * 0.6);
+                const bounceBackPct = avgProgTvr > 0 ? ((avgAdTvr / avgProgTvr) * 100) : 100;
+
+                // 5. Analisis Emosi Konten vs Rating
+                const emotionMap = {
+                    'Konflik': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Konflik / Marah', icon: '😡', color: '#f43f5e' },
+                    'Sedih': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Sedih / Melankolis', icon: '😢', color: '#60a5fa' },
+                    'Happy': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Ceria / Romantis', icon: '😊', color: '#34d399' },
+                    'Tegang': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Tegang / Suspense', icon: '😱', color: '#fb923c' },
+                    'Netral': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Netral / Transisi', icon: 'ℹ️', color: '#94a3b8' }
+                };
+
+                // 6. Analisis Pacing Konten
+                const pacingMap = {
+                    'Cepat': { count: 0, sumTvr: 0, label: 'Cepat (Fast)', icon: '⚡', color: '#f59e0b' },
+                    'Sedang': { count: 0, sumTvr: 0, label: 'Sedang (Normal)', icon: '⏱️', color: '#94a3b8' },
+                    'Lambat': { count: 0, sumTvr: 0, label: 'Lambat (Dragging)', icon: '⏳', color: '#c084fc' }
+                };
+
+                validRows.forEach((r, idx) => {
+                    const a = detectRowAnalytics(r, idx);
+                    const em = a.emosi || 'Netral';
+                    const pc = a.pacing || 'Sedang';
+                    const val = Number(r.tvr);
+
+                    if (emotionMap[em]) {
+                        emotionMap[em].count++;
+                        emotionMap[em].sumTvr += val;
+                        if (val > emotionMap[em].maxTvr) emotionMap[em].maxTvr = val;
+                    }
+                    if (pacingMap[pc]) {
+                        pacingMap[pc].count++;
+                        pacingMap[pc].sumTvr += val;
+                    }
+                });
+
+                const emotionStats = Object.keys(emotionMap).map(k => ({
+                    key: k,
+                    ...emotionMap[k],
+                    avgTvr: emotionMap[k].count > 0 ? (emotionMap[k].sumTvr / emotionMap[k].count).toFixed(2) : "0.00",
+                    pctOfTotal: ((emotionMap[k].count / N) * 100).toFixed(0)
+                })).sort((a, b) => Number(b.avgTvr) - Number(a.avgTvr));
+
+                const pacingStats = Object.keys(pacingMap).map(k => ({
+                    key: k,
+                    ...pacingMap[k],
+                    avgTvr: pacingMap[k].count > 0 ? (pacingMap[k].sumTvr / pacingMap[k].count).toFixed(2) : "0.00",
+                    pctOfTotal: ((pacingMap[k].count / N) * 100).toFixed(0)
+                }));
+
+                const topEmotion = emotionStats.find(e => e.count > 0);
+                const draggingRisks = validRows.filter((r, i) => {
+                    const a = detectRowAnalytics(r, i);
+                    const prev = i > 0 ? Number(validRows[i - 1].tvr) : Number(r.tvr);
+                    return a.pacing === 'Lambat' && (Number(r.tvr) - prev) < -0.3;
+                });
+
+                return {
+                    N,
+                    meanTvr: meanTvr.toFixed(2),
+                    slopeBeta: slopeBeta.toFixed(3),
+                    pearsonR: pearsonR.toFixed(2),
+                    stdDev: stdDev.toFixed(2),
+                    curveTypology,
+                    avgProgTvr: avgProgTvr.toFixed(2),
+                    avgAdTvr: avgAdTvr.toFixed(2),
+                    bounceBackPct: Math.round(bounceBackPct),
+                    emotionStats,
+                    pacingStats,
+                    topEmotion,
+                    draggingRisks
                 };
             }, [mbmRows]);
 
@@ -1780,13 +1958,15 @@
                 if (mbmRows.length === 0) return notify("Tidak ada data untuk diekspor!");
 
                 const aoaData = [
-                    ["No", "Rentang Waktu", "TVR", "SHARE (%)", "UNIT", "Deskripsi Adegan"],
+                    ["No", "Rentang Waktu", "TVR", "SHARE (%)", "UNIT", "PACING", "EMOSI", "Deskripsi Adegan"],
                     ...mbmRows.map((r, idx) => [
                         idx + 1,
                         r.rentangWaktu || "",
                         r.tvr !== undefined && r.tvr !== null && r.tvr !== "" ? Number(r.tvr) : "",
                         r.share !== undefined && r.share !== null && r.share !== "" ? Number(r.share) : "",
                         r.unit || "",
+                        r.pacing || (detectRowAnalytics(r, idx).pacing) || "",
+                        r.emosi || (detectRowAnalytics(r, idx).emosi) || "",
                         r.deskripsi || ""
                     ]),
                     ["", "", "", "", "", ""],
@@ -1795,7 +1975,7 @@
                 ];
 
                 const ws = XLSX.utils.aoa_to_sheet(aoaData);
-                ws['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 100 }];
+                ws['!cols'] = [{ wch: 6 }, { wch: 18 }, { wch: 10 }, { wch: 12 }, { wch: 18 }, { wch: 14 }, { wch: 16 }, { wch: 100 }];
 
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "Hasil_MBM");
@@ -1808,15 +1988,18 @@
 
             const exportToCSVSystem = () => {
                 if (mbmRows.length === 0) return notify("Tidak ada data untuk diekspor!");
-                let csv = "No,Rentang Waktu,TVR,SHARE (%),UNIT,Deskripsi Adegan\n";
+                let csv = "No,Rentang Waktu,TVR,SHARE (%),UNIT,PACING,EMOSI,Deskripsi Adegan\n";
                 mbmRows.forEach((row, idx) => {
                     const no = idx + 1;
                     const time = (row.rentangWaktu || "").replace(/"/g, '""');
                     const tvr = row.tvr !== undefined && row.tvr !== null ? row.tvr : "";
                     const share = row.share !== undefined && row.share !== null ? row.share : "";
                     const unit = (row.unit || "").replace(/"/g, '""');
+                    const analytics = detectRowAnalytics(row, idx);
+                    const pacing = (row.pacing || analytics.pacing || "").replace(/"/g, '""');
+                    const emosi = (row.emosi || analytics.emosi || "").replace(/"/g, '""');
                     const desc = (row.deskripsi || "").replace(/"/g, '""');
-                    csv += `"${no}","${time}","${tvr}","${share}","${unit}","${desc}"\n`;
+                    csv += `"${no}","${time}","${tvr}","${share}","${unit}","${pacing}","${emosi}","${desc}"\n`;
                 });
                 const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                 const link = document.createElement("a");
@@ -2270,7 +2453,11 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
   "rows": [
     {
       "rentangWaktu": "00:00 - 01:00",
-      "deskripsi": "[Visual] ...\\n[Dialog]\\n• ..."
+      "pacing": "Cepat / Sedang / Lambat",
+      "emosi": "Konflik / Sedih / Happy / Tegang / Netral",
+      "pacing": "Cepat / Sedang / Lambat",
+  "emosi": "Konflik / Sedih / Happy / Tegang / Netral",
+  "deskripsi": "[Visual] ...\\n[Dialog]\\n• ..."
     }
   ]
 }`
@@ -2302,6 +2489,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
                                     }
                                     return {
                                         rentangWaktu: seg.timeCode,
+
                                         deskripsi: desc
                                     };
                                 });
@@ -2322,6 +2510,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
                             const newRows = rowsArray.map((r, idx) => ({
                                 id: Date.now() + idx,
                                 rentangWaktu: r.rentangWaktu || segments[idx]?.timeCode || `${idx}:00 - ${idx + 1}:00`,
+                                pacing: r.pacing || undefined,
+                                emosi: r.emosi || undefined,
                                 deskripsi: r.deskripsi || (typeof r === 'string' ? r : "Aktivitas adegan siaran.")
                             }));
 
@@ -2399,6 +2589,8 @@ PANDUAN: Dengarkan klip audio yang disertakan untuk menangkap dialog asli dalam 
 KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
 {
   "rentangWaktu": "${seg.timeCode}",
+  "pacing": "Cepat / Sedang / Lambat",
+  "emosi": "Konflik / Sedih / Happy / Tegang / Netral",
   "deskripsi": "[Visual] ...\\n[Dialog]\\n• ..."
 }`
                                     });
@@ -2430,7 +2622,10 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
 
                                 accumulatedRows[index] = {
                                     id: Date.now() + index,
+                                    pacing: parsedSeg?.pacing,
+                                    emosi: parsedSeg?.emosi,
                                     rentangWaktu: seg.timeCode,
+
                                     deskripsi: desc
                                 };
 
@@ -2683,6 +2878,39 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                     </div>
                                 </div>
 
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                            Pacing / Ritme Adegan
+                                        </label>
+                                        <select
+                                            value={editingRow.pacing || "Sedang"}
+                                            onChange={(e) => setEditingRow({ ...editingRow, pacing: e.target.value })}
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
+                                        >
+                                            <option value="Cepat">⚡ Cepat (Fast-Paced)</option>
+                                            <option value="Sedang">⏱️ Sedang (Moderate)</option>
+                                            <option value="Lambat">⏳ Lambat (Slow/Dragging)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                            Emosi Dominan Konten
+                                        </label>
+                                        <select
+                                            value={editingRow.emosi || "Konflik"}
+                                            onChange={(e) => setEditingRow({ ...editingRow, emosi: e.target.value })}
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
+                                        >
+                                            <option value="Konflik">😡 Konflik / Marah</option>
+                                            <option value="Sedih">😢 Sedih / Melankolis</option>
+                                            <option value="Happy">😊 Ceria / Romantis</option>
+                                            <option value="Tegang">😱 Tegang / Suspense</option>
+                                            <option value="Netral">ℹ️ Netral / Transisi</option>
+                                        </select>
+                                    </div>
+                                </div>
+
                                 <div>
                                     <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
                                         Deskripsi Adegan
@@ -2717,7 +2945,9 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                     deskripsi: editingRow.deskripsi,
                                                     tvr: editingRow.tvr !== "" && editingRow.tvr !== null && editingRow.tvr !== undefined ? Number(editingRow.tvr) : null,
                                                     share: editingRow.share !== "" && editingRow.share !== null && editingRow.share !== undefined ? Number(editingRow.share) : null,
-                                                    unit: editingRow.unit || null
+                                                    unit: editingRow.unit || null,
+                                                    pacing: editingRow.pacing || null,
+                                                    emosi: editingRow.emosi || null
                                                 };
                                             }
                                             return row;
@@ -3656,7 +3886,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                                                         title={`Unit: ${row.unit} - Klik untuk edit`}
                                                                                                         onClick={() => setEditingRow({ ...row, index: idx + 1 })}
                                                                                                     >
-                                                                                                        {row.unit}
+                                                                                                        {row.unit}</span>)}{(() => { const a = detectRowAnalytics(row, idx); return (<><span className={"text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform " + (a.pacing === "Cepat" ? "bg-amber-500/25 text-amber-300 border-amber-400/40" : a.pacing === "Lambat" ? "bg-purple-500/25 text-purple-300 border-purple-400/40" : "bg-slate-700/50 text-slate-300 border-slate-600/50")} title={"Pacing: " + a.pacing + " - Klik untuk edit"} onClick={() => setEditingRow({ ...row, ...a, index: idx + 1 })}>{a.pacing === "Cepat" ? "⚡ Cepat" : a.pacing === "Lambat" ? "⏳ Lambat" : "⏱️ Sedang"}</span><span className={"text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform " + (a.emosi === "Konflik" ? "bg-red-500/30 text-red-300 border-red-500/50" : a.emosi === "Sedih" ? "bg-blue-500/30 text-blue-300 border-blue-400/50" : a.emosi === "Happy" ? "bg-emerald-500/30 text-emerald-300 border-emerald-400/50" : a.emosi === "Tegang" ? "bg-orange-500/30 text-orange-300 border-orange-400/50" : "bg-slate-800 text-slate-300 border-slate-700")} title={"Emosi: " + a.emosi + " - Klik untuk edit"} onClick={() => setEditingRow({ ...row, ...a, index: idx + 1 })}>{a.emosi === "Konflik" ? "😡 Konflik" : a.emosi === "Sedih" ? "😢 Sedih" : a.emosi === "Happy" ? "😊 Ceria" : a.emosi === "Tegang" ? "😱 Tegang" : "ℹ️ Netral"}</span></>); })()}{false && (<span>
                                                                                                     </span>
                                                                                                 )}
                                                                                             </div>
@@ -3855,6 +4085,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                                     <i className="fa-solid fa-file-import text-[9px] text-neon"></i>
                                                                                     <span className="hidden sm:inline">{t("pasteRating")}</span>
                                                                                 </button>
+
+                                                                                <button 
+                                                                                    type="button"
+                                                                                    onClick={() => setShowAnalyticsDrawer(!showAnalyticsDrawer)}
+                                                                                    className={"text-[10px] font-bold px-2 py-0.5 rounded-lg transition-all flex items-center gap-1.5 " + (showAnalyticsDrawer ? "bg-neon text-obsidian font-black shadow-[0_0_12px_rgba(204,255,0,0.4)] ring-1 ring-neon-dark" : "text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15")}
+                                                                                    title="Buka / Tutup Panel Analisis Statistik, Bentuk Kurva & Emosi Konten"
+                                                                                >
+                                                                                    <i className="fa-solid fa-chart-pie text-[9px]"></i>
+                                                                                    <span className="hidden sm:inline">Analisis Statistik</span>
+                                                                                </button>
                                                                             </div>
 
                                                                             {/* Area Tengah: Ketika grafik dilipat (Compact Mode), tetap munculkan angka performanya murni secara realtime & deretan menit tanpa plus/minus */}
@@ -3967,6 +4207,146 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                                 </button>
                                                                             </div>
                                                                         </div>
+                                                                        {/* Drawer Analisis Statistik, Bentuk Kurva & Dinamika Emosi/Pacing */}
+                                                                        {showAnalyticsDrawer && statisticalAnalytics && (
+                                                                            <div className="mb-2 p-2.5 sm:p-3 rounded-2xl bg-slate-900/95 border border-white/15 backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                                                                                <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-neon/15 text-neon border border-neon/30 text-xs">
+                                                                                            <i className="fa-solid fa-chart-line"></i>
+                                                                                        </span>
+                                                                                        <div>
+                                                                                            <h4 className="text-xs font-black text-white tracking-wide flex items-center gap-2">
+                                                                                                Analisis Statistik & Tipologi Bentuk Kurva Penyiaran
+                                                                                                <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-neon/15 text-neon border border-neon/30 font-mono">
+                                                                                                    N = {statisticalAnalytics.N} Menit
+                                                                                                </span>
+                                                                                            </h4>
+                                                                                            <p className="text-[10px] text-slate-400">Hubungan regresi linear, volatilitas audiens, dinamika emosi cerita, dan retensi jeda komersial.</p>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        onClick={() => setShowAnalyticsDrawer(false)}
+                                                                                        className="w-5 h-5 rounded-md bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center text-xs"
+                                                                                        title="Tutup panel analisis"
+                                                                                    >
+                                                                                        <i className="fa-solid fa-xmark"></i>
+                                                                                    </button>
+                                                                                </div>
+
+                                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                                                                                    {/* Card 1: Tipologi Bentuk Kurva & Regresi */}
+                                                                                    <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
+                                                                                        <div>
+                                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipologi Kurva</span>
+                                                                                                <span className={"text-[9px] font-black px-2 py-0.5 rounded-full border " + (statisticalAnalytics.slopeBeta >= 0.035 ? "bg-neon/20 text-neon border-neon/40" : statisticalAnalytics.slopeBeta <= -0.035 ? "bg-rose-500/20 text-rose-300 border-rose-400/40" : "bg-sky-500/20 text-sky-300 border-sky-400/40")}>
+                                                                                                    {statisticalAnalytics.curveTypology.badge}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-2 mb-1">
+                                                                                                <i className={"fa-solid " + statisticalAnalytics.curveTypology.icon + " text-base " + statisticalAnalytics.curveTypology.color}></i>
+                                                                                                <span className="text-xs font-black text-white">{statisticalAnalytics.curveTypology.name}</span>
+                                                                                            </div>
+                                                                                            <p className="text-[10px] text-slate-300 leading-relaxed mb-2">
+                                                                                                {statisticalAnalytics.curveTypology.desc}
+                                                                                            </p>
+                                                                                        </div>
+                                                                                        <div className="pt-2 border-t border-white/10 grid grid-cols-3 gap-1 text-center font-mono">
+                                                                                            <div className="bg-black/30 p-1 rounded border border-white/5">
+                                                                                                <div className="text-[9px] text-slate-400 font-sans">Slope (β)</div>
+                                                                                                <div className={"text-[11px] font-black " + (statisticalAnalytics.slopeBeta >= 0 ? "text-neon" : "text-rose-400")}>
+                                                                                                    {statisticalAnalytics.slopeBeta > 0 ? "+" : ""}{statisticalAnalytics.slopeBeta}
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="bg-black/30 p-1 rounded border border-white/5">
+                                                                                                <div className="text-[9px] text-slate-400 font-sans">Korelasi (r)</div>
+                                                                                                <div className="text-[11px] font-black text-sky-300">{statisticalAnalytics.pearsonR}</div>
+                                                                                            </div>
+                                                                                            <div className="bg-black/30 p-1 rounded border border-white/5">
+                                                                                                <div className="text-[9px] text-slate-400 font-sans">Volatilitas (σ)</div>
+                                                                                                <div className="text-[11px] font-black text-amber-300">±{statisticalAnalytics.stdDev}</div>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Card 2: Korelasi Emosi Cerita vs Performa Rating */}
+                                                                                    <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
+                                                                                        <div>
+                                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Korelasi Emosi vs Rating</span>
+                                                                                                {statisticalAnalytics.topEmotion && (
+                                                                                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                                                                                                        Peak: {statisticalAnalytics.topEmotion.icon} {statisticalAnalytics.topEmotion.key}
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
+                                                                                            <div className="space-y-1 mb-2">
+                                                                                                {statisticalAnalytics.emotionStats.map(em => (
+                                                                                                    <div key={em.key} className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded bg-black/20 hover:bg-black/40 transition-colors">
+                                                                                                        <div className="flex items-center gap-1.5">
+                                                                                                            <span className="text-xs">{em.icon}</span>
+                                                                                                            <span className="text-slate-300 font-medium">{em.key}</span>
+                                                                                                            <span className="text-white/40 text-[9px]">({em.count}m • {em.pctOfTotal}%)</span>
+                                                                                                        </div>
+                                                                                                        <div className="flex items-center gap-1.5 font-mono">
+                                                                                                            <span className="text-[9px] text-slate-400">Avg TVR:</span>
+                                                                                                            <span className="font-bold text-neon">{em.avgTvr}</span>
+                                                                                                        </div>
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        <div className="text-[9px] text-slate-400 pt-1.5 border-t border-white/10 flex items-center justify-between">
+                                                                                            <span>Target Hook: Konflik & Tegang</span>
+                                                                                            <span className="text-slate-300 font-mono">Mean: {statisticalAnalytics.meanTvr} TVR</span>
+                                                                                        </div>
+                                                                                    </div>
+
+                                                                                    {/* Card 3: Dinamika Pacing & Retensi Jeda Iklan */}
+                                                                                    <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
+                                                                                        <div>
+                                                                                            <div className="flex items-center justify-between mb-1.5">
+                                                                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pacing & Retensi Iklan</span>
+                                                                                                <span className={"text-[9px] font-black px-2 py-0.5 rounded-full border " + (statisticalAnalytics.bounceBackPct >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30")}>
+                                                                                                    Retensi {statisticalAnalytics.bounceBackPct}%
+                                                                                                </span>
+                                                                                            </div>
+                                                                                            <div className="grid grid-cols-2 gap-1.5 mb-2">
+                                                                                                <div className="p-1.5 rounded bg-black/30 border border-white/5">
+                                                                                                    <div className="text-[9px] text-slate-400">TVR Rata-rata Program</div>
+                                                                                                    <div className="text-xs font-black text-neon font-mono">{statisticalAnalytics.avgProgTvr}</div>
+                                                                                                </div>
+                                                                                                <div className="p-1.5 rounded bg-black/30 border border-white/5">
+                                                                                                    <div className="text-[9px] text-slate-400">TVR Rata-rata Iklan</div>
+                                                                                                    <div className="text-xs font-black text-sky-300 font-mono">{statisticalAnalytics.avgAdTvr}</div>
+                                                                                                </div>
+                                                                                            </div>
+                                                                                            <div className="flex items-center gap-1.5 mb-2">
+                                                                                                {statisticalAnalytics.pacingStats.map(pc => (
+                                                                                                    <div key={pc.key} className="flex-1 p-1 rounded bg-black/20 text-center border border-white/5">
+                                                                                                        <div className="text-[9px] text-slate-400">{pc.icon} {pc.key}</div>
+                                                                                                        <div className="text-[10px] font-bold text-white font-mono">{pc.count}m <span className="text-white/40 text-[8px]">({pc.pctOfTotal}%)</span></div>
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        </div>
+                                                                                        {statisticalAnalytics.draggingRisks && statisticalAnalytics.draggingRisks.length > 0 ? (
+                                                                                            <div className="p-1.5 rounded bg-rose-500/15 border border-rose-500/30 text-[9px] text-rose-200 flex items-center gap-1.5">
+                                                                                                <i className="fa-solid fa-triangle-exclamation text-rose-400"></i>
+                                                                                                <span>Terdeteksi {statisticalAnalytics.draggingRisks.length} segmen lambat yang menurunkan TVR tajam (&gt; -0.3). Evaluasi durasi.</span>
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <div className="p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] text-emerald-300 flex items-center gap-1.5">
+                                                                                                <i className="fa-solid fa-circle-check text-emerald-400"></i>
+                                                                                                <span>Ritme penayangan (pacing) sehat, tidak ada pelepasan audiens abnormal.</span>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
                                                                         {/* Chart Canvas Area (Tinggi 1/2 Lebih Pendek, Ultra Wide) */}
                                                                         {!isChartCompact && (
                                                                             <div className="relative">
@@ -4213,8 +4593,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                     className="bg-[#f4fce3] hover:bg-[#eaf9cc] text-slate-950 px-3 py-1.5 rounded-xl text-[10px] font-black border border-limeBorder flex items-center gap-1.5 shadow-sm active:scale-95 transition-all"
                                                                     title="Buka form impor atau tempel data rating Nielsen"
                                                                 >
-                                                                    <i className="fa-solid fa-file-import text-lime-700 text-[10px]"></i>
-                                                                    <span>Tempel Rating</span>
+                                                                    <span>Tempel Rating Nielsen</span>
+                                                                </button>
+                                                                <button 
+                                                                    type="button"
+                                                                    onClick={() => setShowAnalyticsDrawer(!showAnalyticsDrawer)}
+                                                                    className={"px-3 py-1.5 rounded-xl text-[10px] font-black border flex items-center gap-1.5 shadow-sm active:scale-95 transition-all " + (showAnalyticsDrawer ? "bg-neon text-obsidian border-neon shadow-[0_0_12px_rgba(204,255,0,0.3)]" : "bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700")}
+                                                                    title="Buka / Tutup Panel Analisis Statistik, Tipologi Bentuk Kurva & Emosi"
+                                                                >
+                                                                    <i className="fa-solid fa-chart-pie text-[10px]"></i>
+                                                                    <span>Analisis Statistik</span>
                                                                 </button>
                                                             </div>
                                                         )}
@@ -5429,7 +5817,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                             title={`Unit: ${row.unit} - Klik untuk edit`}
                                                                             onClick={() => setEditingRow({ ...row, index: idx + 1 })}
                                                                         >
-                                                                            {row.unit}
+                                                                            {row.unit}</span>)}{(() => { const a = detectRowAnalytics(row, idx); return (<><span className={"text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform " + (a.pacing === "Cepat" ? "bg-amber-500/25 text-amber-300 border-amber-400/40" : a.pacing === "Lambat" ? "bg-purple-500/25 text-purple-300 border-purple-400/40" : "bg-slate-700/50 text-slate-300 border-slate-600/50")} title={"Pacing: " + a.pacing + " - Klik untuk edit"} onClick={() => setEditingRow({ ...row, ...a, index: idx + 1 })}>{a.pacing === "Cepat" ? "⚡ Cepat" : a.pacing === "Lambat" ? "⏳ Lambat" : "⏱️ Sedang"}</span><span className={"text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform " + (a.emosi === "Konflik" ? "bg-red-500/30 text-red-300 border-red-500/50" : a.emosi === "Sedih" ? "bg-blue-500/30 text-blue-300 border-blue-400/50" : a.emosi === "Happy" ? "bg-emerald-500/30 text-emerald-300 border-emerald-400/50" : a.emosi === "Tegang" ? "bg-orange-500/30 text-orange-300 border-orange-400/50" : "bg-slate-800 text-slate-300 border-slate-700")} title={"Emosi: " + a.emosi + " - Klik untuk edit"} onClick={() => setEditingRow({ ...row, ...a, index: idx + 1 })}>{a.emosi === "Konflik" ? "😡 Konflik" : a.emosi === "Sedih" ? "😢 Sedih" : a.emosi === "Happy" ? "😊 Ceria" : a.emosi === "Tegang" ? "😱 Tegang" : "ℹ️ Netral"}</span></>); })()}{false && (<span>
                                                                         </span>
                                                                     )}
                                                                 </div>
