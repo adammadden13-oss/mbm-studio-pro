@@ -6641,43 +6641,61 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                     {/* MODAL MENU EDIT BARIS MBM                              */}
                     {/* ======================================================== */}
                     {!isVideoZoomed && renderEditRowModal()}
-                    {false && (
-                        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fadeIn">
-                            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-lg w-full p-6 space-y-4">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-6 h-6 rounded-lg bg-blue-100 text-blue-700 font-black text-xs flex items-center justify-center">
-                                            #{editingRow.index}
-                                        </span>
-                                        <h3 className="font-black text-base text-slate-900">Menu Edit Segmen MBM</h3>
-                                    </div>
-                                    <button 
-                                        onClick={() => setEditingRow(null)}
-                                        className="text-slate-400 hover:text-slate-700 p-1 text-sm rounded-lg hover:bg-slate-100 transition-colors"
-                                    >
-                                        <i className="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
+                    {/* Modal Tempel Data Nielsen Rating */}
+                    {!isVideoZoomed && renderRatingModal()}
 
-                                <div className="space-y-3">
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                        <div>
-                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
-                                                Rentang Waktu (Timecode)
-                                            </label>
-                                            <input 
-                                                type="text"
-                                                value={editingRow.rentangWaktu}
-                                                onChange={(e) => setEditingRow({ ...editingRow, rentangWaktu: e.target.value })}
-                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
-                                                placeholder="00:00 - 01:00"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
-                                                Unit / Segmen
-                                            </label>
-                                            <input 
-                                                type="text"
-                  
-... [truncated for diff preview]
+                    {/* DYNAMIC ISLAND PROJECT SWITCHER (5 PROJECT SLOTS) */}
+                    {!isVideoZoomed && (
+                        <div className="fixed bottom-5 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center bg-obsidian/95 text-white p-1.5 px-3 rounded-full shadow-2xl border border-white/15 backdrop-blur-xl gap-2 select-none animate-fadeIn">
+                            <div className="flex items-center gap-1.5 pr-2.5 border-r border-white/15 text-[10px] font-black uppercase text-neon tracking-wider">
+                                <span className="w-2 h-2 rounded-full bg-neon animate-pulse"></span>
+                                <span>PROYEK</span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                {projects.map((proj) => {
+                                    const isActive = activeProjectId === proj.id;
+                                    const count = proj.id === activeProjectId ? mbmRows.length : (proj.rowCount || 0);
+                                    return (
+                                        <button
+                                            key={proj.id}
+                                            type="button"
+                                            onClick={() => handleSwitchProject(proj.id)}
+                                            className={`px-3 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                                isActive
+                                                    ? 'bg-neon text-obsidian font-black shadow-[0_0_12px_rgba(204,255,0,0.5)] scale-105'
+                                                    : 'hover:bg-white/10 text-slate-300 hover:text-white'
+                                            }`}
+                                            title={`Beralih ke ${proj.name}`}
+                                        >
+                                            <span>{proj.name}</span>
+                                            <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
+                                                isActive ? 'bg-obsidian/20 text-obsidian' : 'bg-white/10 text-slate-400'
+                                            }`}>
+                                                {count}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                                {projects.length < MAX_PROJECTS && (
+                                    <button
+                                        type="button"
+                                        onClick={handleAddNewProject}
+                                        className="w-6 h-6 rounded-full bg-white/10 hover:bg-neon hover:text-obsidian text-slate-300 flex items-center justify-center text-xs font-bold transition-all ml-0.5"
+                                        title="Tambah Proyek Baru (Maksimal 5)"
+                                    >
+                                        <i className="fa-solid fa-plus text-[10px]"></i>
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
