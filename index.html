@@ -7,7 +7,13 @@
     <!-- Favicon (Obsidian Circle with Neon Bolt) -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Ccircle cx='256' cy='256' r='256' fill='%230f172a'/%3E%3Cg transform='translate(179, 153) scale(0.40)'%3E%3Cpath d='M0 256L245.7 0L320 0L234.7 170.7L384 170.7L138.3 512L64 512L149.3 341.3L0 341.3Z' fill='%23ccff00' stroke='%23ccff00' stroke-width='14' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/g%3E%3C/svg%3E">
     <link rel="alternate icon" href="favicon.ico">
-    <link rel="apple-touch-icon" href="favicon.png">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="MBM Studio">
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- React & Babel -->
@@ -840,6 +846,53 @@
                 };
                 restoreSavedVideo();
             }, []);
+            // State PWA Install Prompt & Service Worker
+            const [deferredInstallPrompt, setDeferredInstallPrompt] = useState(null);
+            const [isAppInstalled, setIsAppInstalled] = useState(false);
+
+            useEffect(() => {
+                if ('serviceWorker' in navigator && (window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+                    window.addEventListener('load', () => {
+                        navigator.serviceWorker.register('./sw.js').catch((err) => {
+                            console.log('SW register info:', err);
+                        });
+                    });
+                }
+
+                if (window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true) {
+                    setIsAppInstalled(true);
+                }
+
+                const handleBeforeInstallPrompt = (e) => {
+                    e.preventDefault();
+                    setDeferredInstallPrompt(e);
+                };
+
+                const handleAppInstalled = () => {
+                    setDeferredInstallPrompt(null);
+                    setIsAppInstalled(true);
+                    notify("MBM Studio Pro berhasil terpasang di perangkat Anda! 🎉");
+                };
+
+                window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+                window.addEventListener('appinstalled', handleAppInstalled);
+
+                return () => {
+                    window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+                    window.removeEventListener('appinstalled', handleAppInstalled);
+                };
+            }, []);
+
+            const handleInstallPwa = async () => {
+                if (!deferredInstallPrompt) return;
+                deferredInstallPrompt.prompt();
+                const choice = await deferredInstallPrompt.userChoice;
+                if (choice.outcome === 'accepted') {
+                    notify("Memasang MBM Studio Pro...");
+                }
+                setDeferredInstallPrompt(null);
+            };
+
             const [historyStack, setHistoryStack] = useState([]);
             const [editingRow, setEditingRow] = useState(null);
             const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -3005,6 +3058,18 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                 title="Download File CSV"
                             >
                                 <span>Export CSV</span>
+                            </button>
+                            {deferredInstallPrompt && !isAppInstalled && (
+                                <button 
+                                    onClick={handleInstallPwa} 
+                                    className="flex items-center gap-1.5 bg-neon hover:bg-neon-dark text-obsidian text-xs font-black px-3.5 py-2 rounded-xl transition-all shadow-md active:scale-95 border border-neon-dark"
+                                    title="Install MBM Studio Pro sebagai aplikasi desktop di komputer Anda"
+                                >
+                                    <i className="fa-solid fa-download text-xs"></i>
+                                    <span>Install App</span>
+                                </button>
+                            )}
+                            <button style={{ display: 'none' }}>
                             </button>
 
                             {/* Tombol Toggle Bahasa (ID / EN) */}
