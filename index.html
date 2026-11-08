@@ -114,13 +114,14 @@
             });
         };
 
-        const storeVideoInIDB = async (file) => {
+        const storeVideoInIDB = async (file, projId = 1) => {
             try {
                 const db = await openVideoDB();
                 if (!db) return false;
                 return new Promise((resolve) => {
                     const tx = db.transaction(IDB_STORE, "readwrite");
                     const store = tx.objectStore(IDB_STORE);
+                    store.put(file, `video_project_${projId}`);
                     store.put(file, "current_video_file");
                     tx.oncomplete = () => resolve(true);
                     tx.onerror = () => resolve(false);
@@ -131,15 +132,20 @@
             }
         };
 
-        const loadVideoFromIDB = async () => {
+        const loadVideoFromIDB = async (projId = 1) => {
             try {
                 const db = await openVideoDB();
                 if (!db) return null;
                 return new Promise((resolve) => {
                     const tx = db.transaction(IDB_STORE, "readonly");
                     const store = tx.objectStore(IDB_STORE);
-                    const getReq = store.get("current_video_file");
-                    getReq.onsuccess = () => resolve(getReq.result || null);
+                    const getReq = store.get(`video_project_${projId}`);
+                    getReq.onsuccess = () => {
+                        if (getReq.result) return resolve(getReq.result);
+                        const fallbackReq = store.get("current_video_file");
+                        fallbackReq.onsuccess = () => resolve(fallbackReq.result || null);
+                        fallbackReq.onerror = () => resolve(null);
+                    };
                     getReq.onerror = () => resolve(null);
                 });
             } catch (e) {
@@ -148,19 +154,37 @@
             }
         };
 
-        const removeVideoFromIDB = async () => {
+        const removeVideoFromIDB = async (projId = 1) => {
             try {
                 const db = await openVideoDB();
                 if (!db) return false;
                 return new Promise((resolve) => {
                     const tx = db.transaction(IDB_STORE, "readwrite");
                     const store = tx.objectStore(IDB_STORE);
+                    store.delete(`video_project_${projId}`);
                     store.delete("current_video_file");
                     tx.oncomplete = () => resolve(true);
                     tx.onerror = () => resolve(false);
                 });
             } catch (e) {
                 console.warn("Gagal menghapus video dari IndexedDB:", e);
+                return false;
+            }
+        };
+
+        const clearAllVideosFromIDB = async () => {
+            try {
+                const db = await openVideoDB();
+                if (!db) return false;
+                return new Promise((resolve) => {
+                    const tx = db.transaction(IDB_STORE, "readwrite");
+                    const store = tx.objectStore(IDB_STORE);
+                    store.clear();
+                    tx.oncomplete = () => resolve(true);
+                    tx.onerror = () => resolve(false);
+                });
+            } catch (e) {
+                console.warn("Gagal membersihkan seluruh media di IndexedDB:", e);
                 return false;
             }
         };
@@ -368,295 +392,10 @@
 
         const App = () => {
             // ==========================================
-            // 1. DATA AWAL (SESUAI DENGAN Video_Log_1793953368968.xlsx)
+            // 1. DATA AWAL DEFAULT (BERSIH & KOSONG)
             // ==========================================
-            const defaultMbmData = [
-                {
-                                "id": 1,
-                                "rentangWaktu": "00:00 - 00:20",
-                                "deskripsi": "Rama berbicara dengan Wit di telepon, membuat rencana untuk bertemu di \"Sal Garden.\""
-                },
-                {
-                                "id": 2,
-                                "rentangWaktu": "00:20 - 00:33",
-                                "deskripsi": "Transisi dan iklan"
-                },
-                {
-                                "id": 3,
-                                "rentangWaktu": "00:33 - 00:50",
-                                "deskripsi": "Tayangan 'GoSpot' menampilkan konflik antara Sena dan Davina, Davina terlihat menangis sementara Arya dan Aisyah tampak bahagia."
-                },
-                {
-                                "id": 4,
-                                "rentangWaktu": "00:50 - 01:25",
-                                "deskripsi": "Davina yang sedih mendapatkan buket bunga, memicu spekulasi mengenai pengirimnya. Arya dan Aisyah masih menunjukkan kebahagiaan dan tawa. Adegan kemudian menunjukkan perayaan 'Syukuran 200 Episode'."
-                },
-                {
-                                "id": 5,
-                                "rentangWaktu": "01:25 - 03:00",
-                                "deskripsi": "Davina mengungkapkan kekesalannya tentang mantannya, sementara Arya terus bermain-main. Sena ditampilkan jatuh."
-                },
-                {
-                                "id": 6,
-                                "rentangWaktu": "03:00 - 03:45",
-                                "deskripsi": "Davina mencurahkan perasaannya kepada Om Henry, calon ayah mertuanya, yang memberikan nasihat kepada Sena untuk meminta maaf kepada Davina. Om Henry juga mengungkapkan rasa penasarannya mengenai hubungan Davina dengan Rian dan Veronika."
-                },
-                {
-                                "id": 7,
-                                "rentangWaktu": "03:45 - 05:00",
-                                "deskripsi": "Misi penyadapan Dion terungkap, dan polisi Cakrabumi melakukan klarifikasi. Dion menerima pesan dari Sena mengenai perkembangan misi penyadapan tersebut."
-                },
-                {
-                                "id": 8,
-                                "rentangWaktu": "05:00 - 05:15",
-                                "deskripsi": "Konflik hubungan Davina dan Sena, serta rivalitasnya dengan Aisyah."
-                },
-                {
-                                "id": 9,
-                                "rentangWaktu": "05:15 - 05:30",
-                                "deskripsi": "Rizky Hanggono berharap konflik Sena dan Davina dapat diselesaikan. Davina terlihat kesal di mobil saat menjawab pertanyaan penggemar tentang mantan kekasih."
-                },
-                {
-                                "id": 10,
-                                "rentangWaktu": "05:30 - 05:45",
-                                "deskripsi": "Sena mengalami berbagai emosi, dari kesal hingga menari dan kemudian terbaring gelisah. Om Henry, calon mertua Davina, mulai memberikan nasihat."
-                },
-                {
-                                "id": 11,
-                                "rentangWaktu": "05:45 - 06:00",
-                                "deskripsi": "Om Henry menyarankan Sena untuk terus meminta maaf kepada Davina. Umar Lubis menunjukkan rasa penasaran Henry terhadap masa lalu Davina dengan Rian."
-                },
-                {
-                                "id": 12,
-                                "rentangWaktu": "06:00 - 06:15",
-                                "deskripsi": "Alat penyadap Dion ditemukan oleh Arman Andika, menyebabkan kepanikan dan potensi kegagalan misi. Polisi merilis video klarifikasi, yang Dion harapkan tidak dilihat Arman."
-                },
-                {
-                                "id": 13,
-                                "rentangWaktu": "06:15 - 06:30",
-                                "deskripsi": "Ibo Tarigan (Dion) menjelaskan misinya dan harapannya agar Arman Andika tidak melihat video yang memberatkan. Suban menyanyikan lagu tentang Sena dan Davina kepada para pemain, menciptakan suasana yang lebih ringan."
-                },
-                {
-                                "id": 14,
-                                "rentangWaktu": "06:30 - 06:45",
-                                "deskripsi": "Lagu Suban tentang Sena dan Davina memicu candaan di antara para aktor, sementara Rezza dengan bercanda menyinggung Suban tentang perasaannya."
-                },
-                {
-                                "id": 15,
-                                "rentangWaktu": "06:45 - 07:00",
-                                "deskripsi": "Suban memperkenalkan lagu baru yang lucu tentang Dion dan Melani, dengan reaksi terkejut dan tawa dari para aktor."
-                },
-                {
-                                "id": 16,
-                                "rentangWaktu": "07:00 - 07:15",
-                                "deskripsi": "Suban terus menyanyikan lagu tentang kehidupan cinta Dion yang tidak beruntung, menghibur para pemeran. Dion mengakui pemahaman mendalam Suban tentang karakternya."
-                },
-                {
-                                "id": 17,
-                                "rentangWaktu": "07:15 - 07:30",
-                                "deskripsi": "Salsabilla Adriani dan Jefri Nichol dari 'Terbaik Itu Kamu' diperkenalkan, menyoroti kolaborasi sebelumnya dan latar belakang beragam mereka di dunia modeling dan game."
-                },
-                {
-                                "id": 18,
-                                "rentangWaktu": "07:30 - 07:45",
-                                "deskripsi": "Jefri Nichol menceritakan peralihan kariernya dari IT ke dunia akting, menemukan kebahagiaan dalam memerankan berbagai karakter. Bebeto Leutualy diperkenalkan sebagai petarung komedi dan komentator sepak bola."
-                },
-                {
-                                "id": 19,
-                                "rentangWaktu": "07:45 - 08:00",
-                                "deskripsi": "Bebeto Leutualy menunjukkan keahliannya dalam berkomentar sepak bola dengan penuh semangat. Sementara itu, plot pengkhianatan Marvin terhadap Kenzi mulai terungkap."
-                },
-                {
-                                "id": 20,
-                                "rentangWaktu": "08:00 - 08:15",
-                                "deskripsi": "Kecurangan Marvin terungkap, menjebak Kenzi dan mengancam bisnis Prayoga. Prayoga (Benny Ruswandi) mengonfirmasi sifat manipulatif Marvin yang mementingkan uang daripada kesetiaan."
-                },
-                {
-                                "id": 21,
-                                "rentangWaktu": "08:15 - 08:30",
-                                "deskripsi": "Luna menunjukkan kecemburuan yang jelas terhadap perhatian Mila kepada Saga, menciptakan ketegangan dalam cinta segitiga. Mila dengan bercanda mengakui perasaan Luna."
-                },
-                {
-                                "id": 22,
-                                "rentangWaktu": "08:30 - 08:45",
-                                "deskripsi": "Eca Aura (Mila) menggoda Luna (Eca Aura) tentang sikapnya terhadap Saga, sementara Luna mempertimbangkan apakah Saga akan berpindah hati ke Mila."
-                },
-                {
-                                "id": 23,
-                                "rentangWaktu": "08:45 - 09:00",
-                                "deskripsi": "Ari Irham merayakan ulang tahun ke-25 dengan pesta barbekyu meriah di lokasi syuting, yang dihadiri para pemain dan kru, menciptakan suasana ceria."
-                },
-                {
-                                "id": 24,
-                                "rentangWaktu": "09:00 - 09:15",
-                                "deskripsi": "Eca Aura dengan bercanda menyuapi Ari Irham sepotong daging, yang menimbulkan tawa dari para pemain. Mereka kemudian berfoto bersama, menunjukkan kebersamaan mereka."
-                },
-                {
-                                "id": 25,
-                                "rentangWaktu": "09:15 - 09:30",
-                                "deskripsi": "Para pemain terlibat dalam permainan 'siapa yang paling iseng', dengan Eca Aura (Luna) menyangkal sifat isengnya, menambah sentuhan ringan pada interaksi mereka."
-                },
-                {
-                                "id": 26,
-                                "rentangWaktu": "10:22 - 10:23",
-                                "deskripsi": "Rama dan Wita mengatur pertemuan di Salad Garden melalui telepon."
-                },
-                {
-                                "id": 27,
-                                "rentangWaktu": "10:23 - 10:24",
-                                "deskripsi": "Promo 'Terikat Janji' menampilkan Davina menangis dan Sena yang tampak bermasalah, diselingi klip ceria dari Arya Saloka dan Aisyah Asunko yang sedang berjoget."
-                },
-                {
-                                "id": 28,
-                                "rentangWaktu": "10:24 - 10:25",
-                                "deskripsi": "Davina menjawab pertanyaan tentang mantan yang ingin balikan, sementara Sena terlihat menari, menciptakan kontras suasana."
-                },
-                {
-                                "id": 29,
-                                "rentangWaktu": "10:25 - 10:27",
-                                "deskripsi": "Sena didorong oleh Henry untuk terus meminta maaf kepada Davina, Henry juga mengungkapkan rasa penasarannya terhadap identitas Davina."
-                },
-                {
-                                "id": 30,
-                                "rentangWaktu": "10:27 - 10:28",
-                                "deskripsi": "Misi penyadapan Dion terancam gagal karena Arman Andika menemukan alat penyadap dan check out dari hotel, Dion memberikan klarifikasi kepada polisi."
-                },
-                {
-                                "id": 31,
-                                "rentangWaktu": "10:28 - 10:30",
-                                "deskripsi": "Suban, seorang penggemar, datang menghibur para pemain 'Terikat Janji' dengan lagu tentang Sena dan Davina, disambut tawa dan canda dari para pemeran."
-                },
-                {
-                                "id": 32,
-                                "rentangWaktu": "10:30 - 10:32",
-                                "deskripsi": "Salsabila Adriani dan Jefri Nichol berbicara tentang pengalaman akting mereka yang sebelumnya dan chemistry kuat mereka."
-                },
-                {
-                                "id": 33,
-                                "rentangWaktu": "10:32 - 10:33",
-                                "deskripsi": "Jefri Nichol menceritakan bagaimana dunia hiburan menawarkan kehidupan alternatif yang menarik, berbeda dari kehidupannya sebagai mahasiswa IT."
-                },
-                {
-                                "id": 34,
-                                "rentangWaktu": "10:33 - 10:35",
-                                "deskripsi": "Bebeto Leutualy membahas perannya sebagai 'Beto' yang komedi dan kecintaannya pada sepak bola, ia memilih akting daripada menjadi pemain bola profesional."
-                },
-                {
-                                "id": 35,
-                                "rentangWaktu": "10:35 - 10:37",
-                                "deskripsi": "Marvin dituduh memfitnah Kenzi atas bocornya data perusahaan Prayoga, dengan Arya Vasco menjelaskan motivasi karakternya yang ambisius."
-                },
-                {
-                                "id": 36,
-                                "rentangWaktu": "10:37 - 10:40",
-                                "deskripsi": "Kisah cinta segi empat di 'Ternyata Ini Cinta' memanas, Luna menunjukkan kecemburuan terhadap Mila yang dekat dengan Saga, sementara Marco juga terlibat."
-                },
-                {
-                                "id": 37,
-                                "rentangWaktu": "10:40 - 10:42",
-                                "deskripsi": "Ari Irham merayakan ulang tahun ke-25 dengan pesta makan malam bersama kru dan pemain, Eca Aura terlihat menyuapi Ari, menciptakan momen lucu."
-                },
-                {
-                                "id": 38,
-                                "rentangWaktu": "20:00 - 20:55",
-                                "deskripsi": "Konflik emosional Sena dan Davina dalam 'Terikat Janji'."
-                },
-                {
-                                "id": 39,
-                                "rentangWaktu": "20:55 - 21:30",
-                                "deskripsi": "Om Henry memberi nasihat kepada Sena tentang permintaan maaf kepada Davina dan Om Henry mulai bertanya-tanya tentang Davina."
-                },
-                {
-                                "id": 40,
-                                "rentangWaktu": "21:30 - 22:50",
-                                "deskripsi": "Misi penyadapan Dion untuk Polres Crakabumi terungkap, memicu panik dan klarifikasi video dari Polres."
-                },
-                {
-                                "id": 41,
-                                "rentangWaktu": "22:50 - 23:25",
-                                "deskripsi": "Suban menghibur para pemain 'Terikat Janji' dengan lagu tentang Sena dan Davina."
-                },
-                {
-                                "id": 42,
-                                "rentangWaktu": "23:25 - 24:00",
-                                "deskripsi": "Salsabila Adriani dan Jefri Nichol membahas chemistry dan perjalanan karir mereka di 'Terbaik Itu Kamu'."
-                },
-                {
-                                "id": 43,
-                                "rentangWaktu": "24:00 - 25:00",
-                                "deskripsi": "Jefri Nichol merefleksikan perjalanannya dalam dunia akting, menemukan kegembiraan dalam menghidupkan karakter-karakter berbeda."
-                },
-                {
-                                "id": 44,
-                                "rentangWaktu": "25:00 - 25:30",
-                                "deskripsi": "Davina mencurahkan isi hatinya kepada Henry yang menasihatinya."
-                },
-                {
-                                "id": 45,
-                                "rentangWaktu": "25:30 - 26:00",
-                                "deskripsi": "Wawancara dengan Umar Lubis (pemeran Henry) mengenai rasa penasaran karakternya terhadap Davina."
-                },
-                {
-                                "id": 46,
-                                "rentangWaktu": "26:00 - 26:30",
-                                "deskripsi": "Alat penyadap Dion ditemukan oleh Arman Andika, menyebabkan kepanikan."
-                },
-                {
-                                "id": 47,
-                                "rentangWaktu": "26:30 - 27:00",
-                                "deskripsi": "Polres Cakrabumi merilis klarifikasi video terkait misi penyadapan Dion."
-                },
-                {
-                                "id": 48,
-                                "rentangWaktu": "27:00 - 27:30",
-                                "deskripsi": "Wawancara dengan Ibob Tarigan (pemeran Dion) menjelaskan misi penyadapan dan harapannya."
-                },
-                {
-                                "id": 49,
-                                "rentangWaktu": "27:30 - 28:30",
-                                "deskripsi": "Suban menghibur para pemain dengan menyanyikan lagu tentang Sena dan Davina."
-                },
-                {
-                                "id": 50,
-                                "rentangWaktu": "28:30 - 30:00",
-                                "deskripsi": "Para pemain memberikan reaksi lucu terhadap lagu Suban, termasuk ejekan tentang potensi konflik."
-                },
-                {
-                                "id": 51,
-                                "rentangWaktu": "30:00 - 31:00",
-                                "deskripsi": "Salsabilla Adriani dan Jefri Nichol membahas perjalanan karir mereka di dunia hiburan, mulai dari vlogging yang sukses hingga pengalaman akting, menyoroti pencapaian dan chemistry di antara mereka."
-                },
-                {
-                                "id": 52,
-                                "rentangWaktu": "31:00 - 32:00",
-                                "deskripsi": "Adegan-adegan di balik layar 'Terbaik Itu Kamu' menampilkan interaksi akrab antara Salsabilla dan Jefri, diikuti oleh Beto Leutualy yang menunjukkan semangatnya sebagai komentator sepak bola dan akting, serta pilihan karirnya."
-                },
-                {
-                                "id": 53,
-                                "rentangWaktu": "32:00 - 33:00",
-                                "deskripsi": "Beto Leutualy berbicara tentang alasannya memilih akting daripada sepak bola profesional, termasuk tantangan menghafal skrip dan pengalaman dalam peran komedi."
-                },
-                {
-                                "id": 54,
-                                "rentangWaktu": "33:00 - 34:00",
-                                "deskripsi": "Plot drama 'Terbaik Itu Kamu' terungkap, fokus pada pengkhianatan Marvin yang mengancam bisnis Prayoga dan manipulasi Marvin terhadap karakter lain demi keuntungan pribadi."
-                },
-                {
-                                "id": 55,
-                                "rentangWaktu": "34:00 - 35:00",
-                                "deskripsi": "Segmen ini menampilkan ketegangan dalam kisah cinta segi empat, di mana Mila merasa cemburu dan mempertanyakan perasaan Luna terhadap Saga dan Marco, menciptakan konflik emosional."
-                },
-                {
-                                "id": 56,
-                                "rentangWaktu": "35:00 - 35:01",
-                                "deskripsi": "Pria mengangkat telepon dan tersenyum."
-                },
-                {
-                                "id": 57,
-                                "rentangWaktu": "35:01 - 35:02",
-                                "deskripsi": "Wanita menerima telepon dengan ekspresi khawatir."
-                }
-            ];
+            const defaultMbmData = [];
+            const defaultSynopsis = "";
 
             
             // Helper 39 Segmen Resmi Review Motor Listrik OMOWAY OMO-X (Otomotif TV - 38m 45s)
@@ -911,8 +650,6 @@
                 }));
             };
 
-            const defaultSynopsis = "Segmen ini didominasi oleh drama hubungan antara Sena dan Davina, di mana Davina merasa sangat sedih dan Sena berusaha mengatasi perasaannya, termasuk dengan menari. Terjadi juga momen ketika Davina mencurahkan isi hatinya kepada Om Henry, calon mertuanya, yang kemudian menasihati Sena untuk terus meminta maaf. Secara paralel, misi penyadapan yang dilakukan Dion terancam gagal dan memicu klarifikasi dari pihak berwenang, mengungkapkan adanya potensi konflik dan pengkhianatan dalam cerita. | Segmen ini menyoroti konflik dalam hubungan Davina dan Sena, di mana Davina merasa sedih sementara Sena berusaha mengatasi perasaannya dengan menari. Terungkapnya perangkat penyadap Dion menciptakan ketegangan, tetapi suasana ceria muncul saat Suban menghibur para aktor dengan lagu. Jefri Nichol dan Salsabilla Adriani dari 'Terbaik Itu Kamu' menampilkan chemistry alami, sementara Bebeto Leutualy menampilkan bakat komedi dan komentator bola. Drama kembali memanas dengan pengkhianatan Marvin yang menjebak Kenzi, serta kecemburuan Luna terhadap kedekatan Saga dan Mila. Di sisi lain, momen ulang tahun Ari Irham di lokasi syuting dan interaksi lucu para pemain memberikan nuansa kebersamaan yang hangat. | Segmen ini menyoroti drama dan kegiatan di balik layar dari dua serial. Untuk 'Terikat Janji', Davina mengalami kekecewaan dan kemarahan karena kebohongan Sena, yang di sisi lain mencoba mengalihkan diri dengan berjoget. Henry memberikan nasihat kepada Sena untuk meminta maaf kepada Davina. Misi penyadapan Dion terancam gagal setelah Arman Andika mengetahui alatnya. Di momen yang lebih ceria, Suban, seorang penggemar, menghibur para pemain 'Terikat Janji' dengan lagu. Untuk 'Terbaik Itu Kamu', dibahas chemistry kuat antara Salsabila Adriani dan Jefri Nichol, serta perjalanan karir mereka. Bebeto Leutualy menampilkan sisi komedi dan kecintaannya pada komentar bola. Konflik memanas dengan rencana licik Marvin terhadap Prayoga dan Kenzi. Hubungan segi empat antara Luna, Saga, Marco, dan Mila juga menjadi fokus, dengan acara syukuran ulang tahun Ari Irham menambah suasana ceria di akhir segmen. | Tidak ada kejadian yang ditemukan dalam rentang waktu 15:00 hingga 20:00 karena durasi video tidak mencakup rentang waktu tersebut. | Segmen ini menyoroti konflik emosional antara Sena dan Davina dalam sinetron 'Terikat Janji', dengan Om Henry memberikan nasihat reflektif kepada Sena. Di sisi lain, misi penyadapan Dion untuk Polres Crakabumi menghadapi kendala dan memicu klarifikasi resmi. Suasana kemudian berubah ceria saat Suban menghibur para pemain dengan lagu. Segmen ini juga menampilkan wawancara dengan Salsabila Adriani dan Jefri Nichol dari 'Terbaik Itu Kamu', membahas chemistry mereka, perjalanan karir, dan bagaimana akting memberikan pengalaman hidup alternatif bagi Jefri. | Segmen ini menyoroti momen emosional Davina yang mencurahkan isi hati kepada Henry, yang kemudian menasihati Sena untuk terus meminta maaf. Sementara itu, misi penyadapan Dion terancam terbongkar, memicu kepanikan dan klarifikasi dari pihak kepolisian. Suasana kemudian menjadi lebih ringan dengan kedatangan Suban, seorang penggemar, yang menyanyikan lagu untuk para pemain, menciptakan momen tawa dan kebersamaan di balik layar. | Segmen ini menampilkan refleksi karir Salsabilla Adriani dan Jefri Nichol, menyoroti kesuksesan mereka dalam akting dan vlogging, serta chemistry mereka di layar. Bebeto Leutualy berbagi semangatnya sebagai komentator sepak bola dan aktor. Drama dalam 'Terbaik Itu Kamu' juga disorot, dengan pengkhianatan Marvin yang mengancam bisnis Prayoga dan ketegangan dalam hubungan cinta segi empat antara Luna, Saga, dan Mila. | Seorang pria mengangkat telepon dan berbicara dengan seorang wanita yang menunjukkan ekspresi khawatir saat menerima panggilan.";
-
             // ==========================================
             // 2. STATE APLIKASI & MULTI-PROJECT (MAKS 5)
             // ==========================================
@@ -925,11 +662,10 @@
                         if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(0, MAX_PROJECTS);
                     }
                 } catch(e) {}
-                const curFile = localStorage.getItem('mbm_uploadedFileName_v3') || "Video_Log_1793953368968.xlsx";
                 return [
-                    { id: 1, name: "Project 1", fileName: curFile, rowCount: 57, updatedAt: Date.now() },
-                    { id: 2, name: "Project 2", fileName: "Project_2_Log.xlsx", rowCount: 0, updatedAt: Date.now() },
-                    { id: 3, name: "Project 3", fileName: "Project_3_Log.xlsx", rowCount: 0, updatedAt: Date.now() }
+                    { id: 1, name: "Project 1", fileName: "Project 1", rowCount: 0, updatedAt: Date.now() },
+                    { id: 2, name: "Project 2", fileName: "Project 2", rowCount: 0, updatedAt: Date.now() },
+                    { id: 3, name: "Project 3", fileName: "Project 3", rowCount: 0, updatedAt: Date.now() }
                 ];
             });
 
@@ -952,28 +688,23 @@
                     if (savedProj) {
                         const parsed = JSON.parse(savedProj);
                         if (parsed.fileName) {
-                            if (parsed.fileName.includes('Rp4ck6C_O5s') || parsed.fileName.startsWith('YouTube_')) {
-                                return "BEDAH KELEBIHAN dan KEKURANGAN OMOWAY OMO-X SMART LONG RANGE | Otomotif TV";
-                            }
                             return parsed.fileName;
                         }
                     }
+                    const savedFile = localStorage.getItem('mbm_uploadedFileName_v3');
+                    if (savedFile) return savedFile;
                 } catch(e) {}
-                const savedFile = localStorage.getItem('mbm_uploadedFileName_v3');
-                if (savedFile && (savedFile.includes('Rp4ck6C_O5s') || savedFile.startsWith('YouTube_'))) {
-                    return "BEDAH KELEBIHAN dan KEKURANGAN OMOWAY OMO-X SMART LONG RANGE | Otomotif TV";
-                }
-                return savedFile || "BEDAH KELEBIHAN dan KEKURANGAN OMOWAY OMO-X SMART LONG RANGE | Otomotif TV";
+                return "Project 1";
             });
             const [fileFolderPath, setFileFolderPath] = useState(() => localStorage.getItem('mbm_fileFolderPath') || "C:\\Users\\MNC Channel\\Downloads");
             const [showFileMenu, setShowFileMenu] = useState(false);
             const [recentFiles, setRecentFiles] = useState(() => {
-                const saved = localStorage.getItem('mbm_recentFiles');
-                return saved ? JSON.parse(saved) : [
-                    { name: "DATABASE STARPRO 2026 - MNCC.xlsx", folder: "C:\\Users\\MNC Channel\\Downloads", type: "excel", time: "Hari ini" },
-                    { name: "Video_Log_1793953368968.xlsx", folder: "C:\\Users\\MNC Channel\\Downloads", type: "excel", time: "Hari ini" },
-                    { name: "Video_Log_1793953421795.csv", folder: "C:\\Users\\MNC Channel\\Downloads", type: "csv", time: "Hari ini" }
-                ];
+                try {
+                    const saved = localStorage.getItem('mbm_recentFiles');
+                    return saved ? JSON.parse(saved) : [];
+                } catch(e) {
+                    return [];
+                }
             });
             
             const [apiKey, setApiKey] = useState(() => localStorage.getItem('mbm_apiKey') || "");
@@ -1061,18 +792,46 @@
             };
             
             // Interval MBM: 1m, 5m, 10m, 30m, 60m (1 jam)
-            const [intervalMinutes, setIntervalMinutes] = useState(() => parseInt(localStorage.getItem('mbm_interval')) || 1);
+            const [intervalMinutes, setIntervalMinutes] = useState(() => {
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (parsed.intervalMinutes) return parsed.intervalMinutes;
+                    }
+                } catch(e) {}
+                return parseInt(localStorage.getItem('mbm_interval')) || 1;
+            });
             
             // Video Player State & Link / YouTube Monitoring
             const [videoFile, setVideoFile] = useState(null);
             const [videoUrl, setVideoUrl] = useState(() => {
-                const savedYt = localStorage.getItem('mbm_youtube_id');
-                if (savedYt) return `https://www.youtube.com/watch?v=${savedYt}`;
-                return "https://www.youtube.com/watch?v=Rp4ck6C_O5s";
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (parsed.videoUrl) return parsed.videoUrl;
+                        if (parsed.youtubeId) return `https://www.youtube.com/watch?v=${parsed.youtubeId}`;
+                    }
+                    const savedYt = localStorage.getItem('mbm_youtube_id');
+                    if (savedYt) return `https://www.youtube.com/watch?v=${savedYt}`;
+                } catch(e) {}
+                return null;
             });
             const [videoDuration, setVideoDuration] = useState(() => {
-                const savedDur = parseInt(localStorage.getItem('mbm_video_duration'));
-                return (savedDur && savedDur > 0) ? savedDur : 2325; // 38:45
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (parsed.videoDuration && parsed.videoDuration > 0) return parsed.videoDuration;
+                    }
+                    const savedDur = parseInt(localStorage.getItem('mbm_video_duration'));
+                    if (savedDur && savedDur > 0) return savedDur;
+                } catch(e) {}
+                return 0;
             });
             const [currentTime, setCurrentTime] = useState(0);
             const [isPlaying, setIsPlaying] = useState(false);
@@ -1082,24 +841,46 @@
             const excelInputRef = useRef(null);
 
             // State Input Link Video / YouTube
-            const [videoSourceTab, setVideoSourceTab] = useState('url'); // 'local' | 'url'
-            const [inputVideoUrl, setInputVideoUrl] = useState('https://www.youtube.com/watch?v=Rp4ck6C_O5s');
+            const [videoSourceTab, setVideoSourceTab] = useState('local'); // 'local' | 'url'
+            const [inputVideoUrl, setInputVideoUrl] = useState('');
             const [youtubeId, setYoutubeId] = useState(() => {
-                return localStorage.getItem('mbm_youtube_id') || "Rp4ck6C_O5s";
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj) {
+                        const parsed = JSON.parse(savedProj);
+                        if (parsed.youtubeId) return parsed.youtubeId;
+                    }
+                } catch(e) {}
+                return null;
             });
             const [showUrlInputModal, setShowUrlInputModal] = useState(false);
 
             // Audio Dialog Transcription State (Pilihan 1: Format Terpadu Visual + Dialog)
             const [includeAudioDialog, setIncludeAudioDialog] = useState(() => {
-                const saved = localStorage.getItem('mbm_include_audio_dialog');
-                return saved !== null ? saved === 'true' : true;
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj && savedProj.includeAudioDialog !== undefined) return savedProj.includeAudioDialog;
+                    const saved = localStorage.getItem('mbm_include_audio_dialog');
+                    return saved !== null ? saved === 'true' : true;
+                } catch(e) {
+                    return true;
+                }
             });
             const [audioFile, setAudioFile] = useState(null);
             const audioInputRef = useRef(null);
 
             // Mode Kecepatan Generate AI ('turbo' = Kilat 5-10s single pass, 'parallel' = Audio Paralel 15-25s 4-worker)
             const [generationSpeedMode, setGenerationSpeedMode] = useState(() => {
-                return localStorage.getItem('mbm_speed_mode') || 'turbo';
+                try {
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                    if (savedProj && savedProj.generationSpeedMode) return savedProj.generationSpeedMode;
+                    return localStorage.getItem('mbm_speed_mode') || 'turbo';
+                } catch(e) {
+                    return 'turbo';
+                }
             });
 
             // Processing & Toast
@@ -1110,7 +891,7 @@
             const [searchTerm, setSearchTerm] = useState("");
             
             const [watermarkText, setWatermarkText] = useState(() => localStorage.getItem('mbm_watermark') || "MNC CHANNELS");
-            const [notesText, setNotesText] = useState(() => localStorage.getItem('mbm_notes') || "Format log MBM: Kolom Rentang Waktu & Deskripsi Adegan. Disertai Sinopsis/Ringkasan global.");
+            const [notesText, setNotesText] = useState(() => localStorage.getItem('mbm_notes') || "");
 
             // MBM Rows & Synopsis State (Persisten di localStorage saat refresh)
             // Preset data rating bawaan untuk simulasi rating menit-ke-menit khas broadcast MNC
@@ -1138,93 +919,60 @@
                     const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
                     if (savedProj) {
                         const parsed = JSON.parse(savedProj);
-                        if (parsed.synopsis) {
-                            // Cek jika sinopsis lama merupakan halusinasi talkshow atau sinetron padahal videonya Otomotif TV
-                            const isOldHallucination = parsed.synopsis.includes('sofa studio modern') || parsed.synopsis.includes('blazer rapi') || parsed.synopsis.includes('Sena') || parsed.synopsis.includes('Davina') || parsed.synopsis.includes('pembawa acara wanita');
-                            const isOtomo = (parsed.fileName && (parsed.fileName.includes('Rp4ck6C_O5s') || parsed.fileName.includes('OMOWAY') || parsed.fileName.startsWith('YouTube_'))) || localStorage.getItem('mbm_youtube_id') === 'Rp4ck6C_O5s';
-                            if (isOtomo && isOldHallucination) {
-                                return getOtomoTvSynopsis();
-                            }
+                        if (parsed.synopsis !== undefined && parsed.synopsis !== null) {
                             return parsed.synopsis;
                         }
                     }
+                    const savedSyn = localStorage.getItem('mbm_synopsis_v3');
+                    if (savedSyn) return savedSyn;
                 } catch(e) {}
-                const savedSyn = localStorage.getItem('mbm_synopsis_v3');
-                if (savedSyn && !savedSyn.includes('sofa studio modern') && !savedSyn.includes('blazer rapi') && !savedSyn.includes('Sena')) {
-                    return savedSyn;
-                }
-                return getOtomoTvSynopsis();
+                return "";
             });
 
             const [mbmRows, setMbmRows] = useState(() => {
-                let rows = null;
-                const isOtomo = (uploadedFileName && (uploadedFileName.includes('OMOWAY') || uploadedFileName.includes('Rp4ck6C_O5s') || uploadedFileName.includes('Otomotif') || uploadedFileName.startsWith('YouTube_')))
-                    || (localStorage.getItem('mbm_youtube_id') === 'Rp4ck6C_O5s')
-                    || (localStorage.getItem('mbm_uploadedFileName_v3') || '').includes('Rp4ck6C_O5s')
-                    || (localStorage.getItem('mbm_uploadedFileName_v3') || '').includes('OMOWAY');
-
-                const isMismatched = (rList) => {
-                    return rList.some(r => r.deskripsi && (
-                        r.deskripsi.includes('sofa studio modern') ||
-                        r.deskripsi.includes('blazer rapi') ||
-                        r.deskripsi.includes('pembawa acara wanita') ||
-                        r.deskripsi.includes('kemeja batik') ||
-                        r.deskripsi.includes('Davina') ||
-                        r.deskripsi.includes('Sena') ||
-                        r.deskripsi.includes('Rama berbicara') ||
-                        r.deskripsi.includes('GoSpot') ||
-                        r.deskripsi.includes('Sal Garden') ||
-                        r.deskripsi.includes('AI Broadcast Logger') ||
-                        r.deskripsi.includes('JSON only') ||
-                        r.deskripsi.includes('rentangWaktu`')
-                    ));
-                };
-
                 try {
                     const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
                     const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
                     if (savedProj) {
                         const parsed = JSON.parse(savedProj);
-                        if (Array.isArray(parsed.rows) && parsed.rows.length > 0) {
-                            if (!isOtomo || !isMismatched(parsed.rows)) {
-                                rows = parsed.rows;
-                            }
+                        if (Array.isArray(parsed.rows)) {
+                            return parsed.rows;
                         }
                     }
-                    if (!rows) {
-                        const saved = localStorage.getItem('mbm_rows_v3');
-                        if (saved !== null) {
-                            const parsed = JSON.parse(saved);
-                            if (Array.isArray(parsed) && parsed.length > 0) {
-                                if (!isOtomo || !isMismatched(parsed)) {
-                                    rows = parsed;
-                                }
-                            }
+                    const saved = localStorage.getItem('mbm_rows_v3');
+                    if (saved !== null) {
+                        const parsed = JSON.parse(saved);
+                        if (Array.isArray(parsed)) {
+                            return parsed;
                         }
                     }
                 } catch(e) {}
-
-                if (!rows) {
-                    rows = isOtomo ? getOtomoTvRows() : defaultMbmData;
-                }
-
-                return rows.map((r, idx) => ({
-                    ...r,
-                    tvr: r.tvr !== undefined && r.tvr !== null ? r.tvr : defaultRatingPresets[idx % defaultRatingPresets.length].tvr,
-                    share: r.share !== undefined && r.share !== null ? r.share : defaultRatingPresets[idx % defaultRatingPresets.length].share,
-                    unit: r.unit || defaultRatingPresets[idx % defaultRatingPresets.length].unit
-                }));
+                return [];
             });
 
-            // Pulihkan video dari IndexedDB saat halaman di-refresh
+            // Pulihkan video dari IndexedDB saat halaman di-refresh sesuai active project
             useEffect(() => {
                 const restoreSavedVideo = async () => {
-                    const savedFile = await loadVideoFromIDB();
-                    if (savedFile) {
-                        const url = URL.createObjectURL(savedFile);
-                        setVideoFile(savedFile);
-                        setVideoUrl(url);
-                        notify(`Video "${savedFile.name}" dipulihkan otomatis dari sesi sebelumnya!`);
+                    const savedId = parseInt(localStorage.getItem('mbm_active_project_id')) || 1;
+                    let shouldRestoreLocal = true;
+                    try {
+                        const savedProj = localStorage.getItem(`mbm_proj_data_${savedId}`);
+                        if (savedProj) {
+                            const parsed = JSON.parse(savedProj);
+                            if (parsed.youtubeId) {
+                                shouldRestoreLocal = false;
+                            }
+                        }
+                    } catch(e) {}
+
+                    if (shouldRestoreLocal) {
+                        const savedFile = await loadVideoFromIDB(savedId);
+                        if (savedFile) {
+                            const url = URL.createObjectURL(savedFile);
+                            setVideoFile(savedFile);
+                            setVideoUrl(url);
+                            setYoutubeId(null);
+                        }
                     }
                 };
                 restoreSavedVideo();
@@ -1662,11 +1410,11 @@
                         }
                     } catch(e) {}
                 }
-                return defaultMaskPresets;
+                return [];
             });
             const [showMasks, setShowMasks] = useState(() => {
                 const saved = localStorage.getItem('mbm_show_masks');
-                return saved !== null ? saved === 'true' : true;
+                return saved !== null ? saved === 'true' : false;
             });
 
             const addMask = (type) => {
@@ -2087,6 +1835,15 @@
                     rows: mbmRows,
                     synopsis: synopsis,
                     fileName: uploadedFileName,
+                    videoType: videoFile ? 'local' : (youtubeId ? 'youtube' : (videoUrl ? 'url' : null)),
+                    youtubeId: youtubeId,
+                    videoUrl: youtubeId ? videoUrl : (videoFile ? null : videoUrl),
+                    videoDuration: videoDuration,
+                    intervalMinutes: intervalMinutes,
+                    includeAudioDialog: includeAudioDialog,
+                    generationSpeedMode: generationSpeedMode,
+                    masks: masks,
+                    hasLocalVideo: !!videoFile,
                     updatedAt: Date.now()
                 };
                 try {
@@ -2099,7 +1856,7 @@
                         if (p.id === activeProjectId) {
                             if (p.fileName !== uploadedFileName || p.rowCount !== mbmRows.length) {
                                 changed = true;
-                                return { ...p, fileName: uploadedFileName, rowCount: mbmRows.length, updatedAt: Date.now() };
+                                return { ...p, fileName: uploadedFileName || p.name, rowCount: mbmRows.length, updatedAt: Date.now() };
                             }
                         }
                         return p;
@@ -2110,10 +1867,10 @@
                     }
                     return prev;
                 });
-            }, [activeProjectId, mbmRows, synopsis, uploadedFileName]);
+            }, [activeProjectId, mbmRows, synopsis, uploadedFileName, videoFile, youtubeId, videoUrl, videoDuration, intervalMinutes, includeAudioDialog, generationSpeedMode, masks]);
 
             // Beralih ke Project Lain (1-click Instant Switch)
-            const handleSwitchProject = (targetId) => {
+            const handleSwitchProject = async (targetId) => {
                 if (targetId === activeProjectId) return;
 
                 // 1. Simpan data project saat ini terlebih dahulu
@@ -2121,48 +1878,107 @@
                     rows: mbmRows,
                     synopsis: synopsis,
                     fileName: uploadedFileName,
+                    videoType: videoFile ? 'local' : (youtubeId ? 'youtube' : (videoUrl ? 'url' : null)),
+                    youtubeId: youtubeId,
+                    videoUrl: youtubeId ? videoUrl : (videoFile ? null : videoUrl),
+                    videoDuration: videoDuration,
+                    intervalMinutes: intervalMinutes,
+                    includeAudioDialog: includeAudioDialog,
+                    generationSpeedMode: generationSpeedMode,
+                    masks: masks,
+                    hasLocalVideo: !!videoFile,
                     updatedAt: Date.now()
                 };
                 try {
                     localStorage.setItem(`mbm_proj_data_${activeProjectId}`, JSON.stringify(currentData));
                 } catch(e) {}
 
-                // 2. Ambil data project target dari LocalStorage
-                let nextRows = null;
-                let nextSynopsis = null;
-                let nextFileName = null;
+                // 2. Bersihkan pemutaran & url blob video sebelumnya jika video lokal
+                if (videoUrl && !youtubeId && !videoUrl.startsWith('http')) {
+                    URL.revokeObjectURL(videoUrl);
+                }
+                if (videoRef.current) {
+                    videoRef.current.pause();
+                }
+                setIsPlaying(false);
+                setCurrentTime(0);
 
+                // 3. Ambil data project target dari LocalStorage
+                let targetData = null;
                 try {
                     const savedTarget = localStorage.getItem(`mbm_proj_data_${targetId}`);
                     if (savedTarget) {
-                        const parsed = JSON.parse(savedTarget);
-                        if (parsed.rows && Array.isArray(parsed.rows) && parsed.rows.length > 0) nextRows = parsed.rows;
-                        if (parsed.synopsis) nextSynopsis = parsed.synopsis;
-                        if (parsed.fileName) nextFileName = parsed.fileName;
+                        targetData = JSON.parse(savedTarget);
                     }
                 } catch(e) {}
 
                 const targetProjectObj = projects.find(p => p.id === targetId);
-                if (!nextRows) {
-                    nextRows = defaultMbmData.map(r => ({ ...r }));
-                    nextSynopsis = defaultSynopsis;
-                    nextFileName = targetProjectObj ? targetProjectObj.fileName : `Project_${targetId}_Log.xlsx`;
-                }
 
+                // 4. Update Active Project ID
                 setActiveProjectId(targetId);
                 try {
                     localStorage.setItem('mbm_active_project_id', targetId.toString());
                 } catch(e) {}
 
-                setMbmRows(nextRows);
-                setSynopsis(nextSynopsis);
-                setUploadedFileName(nextFileName);
+                if (targetData) {
+                    const tRows = Array.isArray(targetData.rows) ? targetData.rows : [];
+                    const tSyn = targetData.synopsis || "";
+                    const tFile = targetData.fileName || targetProjectObj?.name || `Project ${targetId}`;
+                    const tDur = targetData.videoDuration || 0;
+                    const tInterval = targetData.intervalMinutes || 1;
+                    const tAudio = targetData.includeAudioDialog !== undefined ? targetData.includeAudioDialog : true;
+                    const tSpeed = targetData.generationSpeedMode || 'turbo';
+                    const tMasks = Array.isArray(targetData.masks) ? targetData.masks : [];
 
-                try {
-                    localStorage.setItem('mbm_rows_v3', JSON.stringify(nextRows));
-                    localStorage.setItem('mbm_synopsis_v3', nextSynopsis);
-                    localStorage.setItem('mbm_uploadedFileName_v3', nextFileName);
-                } catch(e) {}
+                    setMbmRows(tRows);
+                    setSynopsis(tSyn);
+                    setUploadedFileName(tFile);
+                    setVideoDuration(tDur);
+                    setIntervalMinutes(tInterval);
+                    setIncludeAudioDialog(tAudio);
+                    setGenerationSpeedMode(tSpeed);
+                    setMasks(tMasks);
+
+                    // Pulihkan video untuk project target
+                    if (targetData.videoType === 'local' || targetData.hasLocalVideo) {
+                        const savedFile = await loadVideoFromIDB(targetId);
+                        if (savedFile) {
+                            const url = URL.createObjectURL(savedFile);
+                            setVideoFile(savedFile);
+                            setVideoUrl(url);
+                            setYoutubeId(null);
+                        } else {
+                            setVideoFile(null);
+                            setVideoUrl(null);
+                            setYoutubeId(null);
+                        }
+                    } else if (targetData.youtubeId) {
+                        setVideoFile(null);
+                        setYoutubeId(targetData.youtubeId);
+                        setVideoUrl(targetData.videoUrl || `https://www.youtube.com/watch?v=${targetData.youtubeId}`);
+                    } else if (targetData.videoUrl) {
+                        setVideoFile(null);
+                        setYoutubeId(null);
+                        setVideoUrl(targetData.videoUrl);
+                    } else {
+                        setVideoFile(null);
+                        setVideoUrl(null);
+                        setYoutubeId(null);
+                    }
+                } else {
+                    // Project Baru / Belum Ada Data (DEFAULT BERSIH)
+                    setMbmRows([]);
+                    setSynopsis("");
+                    setUploadedFileName(targetProjectObj?.name || `Project ${targetId}`);
+                    setVideoDuration(0);
+                    setIntervalMinutes(1);
+                    setIncludeAudioDialog(true);
+                    setGenerationSpeedMode('turbo');
+                    setMasks([]);
+                    setVideoFile(null);
+                    setVideoUrl(null);
+                    setYoutubeId(null);
+                }
 
                 notify(`Beralih ke ${targetProjectObj?.name || 'Project ' + targetId}`);
             };
@@ -2186,34 +2002,46 @@
                 const newProj = {
                     id: nextId,
                     name: `Project ${nextId}`,
-                    fileName: `Project_${nextId}_Log.xlsx`,
-                    rowCount: defaultMbmData.length,
+                    fileName: `Project ${nextId}`,
+                    rowCount: 0,
                     updatedAt: Date.now()
                 };
                 const updated = [...projects, newProj].sort((a, b) => a.id - b.id);
                 setProjects(updated);
                 try {
                     localStorage.setItem('mbm_projects_v2', JSON.stringify(updated));
+                    localStorage.setItem(`mbm_proj_data_${nextId}`, JSON.stringify({
+                        rows: [],
+                        synopsis: "",
+                        fileName: newProj.name,
+                        videoDuration: 0,
+                        intervalMinutes: 1,
+                        includeAudioDialog: true,
+                        generationSpeedMode: 'turbo',
+                        masks: [],
+                        updatedAt: Date.now()
+                    }));
                 } catch(e) {}
 
                 handleSwitchProject(nextId);
-                notify(`Project baru "${newProj.name}" aktif!`);
+                notify(`Project baru "${newProj.name}" dibuat & aktif!`);
             };
 
             // Hapus Project Slot
-            const handleDeleteProject = (projId, e) => {
+            const handleDeleteProject = async (projId, e) => {
                 if (e) e.stopPropagation();
                 if (projects.length <= 1) {
                     notify("Minimal harus ada 1 project aktif!");
                     return;
                 }
                 const targetProj = projects.find(p => p.id === projId);
-                const confirmed = window.confirm(`Hapus slot "${targetProj?.name || 'Project ' + projId}"?\nData log di slot ini akan dibersihkan.`);
+                const confirmed = window.confirm(`Hapus slot "${targetProj?.name || 'Project ' + projId}"?\nData log dan video di proyek ini akan dibersihkan.`);
                 if (!confirmed) return;
 
                 try {
                     localStorage.removeItem(`mbm_proj_data_${projId}`);
                 } catch(e) {}
+                await removeVideoFromIDB(projId);
 
                 const remaining = projects.filter(p => p.id !== projId);
                 setProjects(remaining);
@@ -2268,33 +2096,66 @@
             const handleReset = async () => {
                 const confirmed = window.confirm(
                     "PERINGATAN RESET TOTAL:\n\n" +
-                    "• Seluruh baris tabel MBM dan sinopsis akan dikembalikan ke data default.\n" +
-                    "• File video yang aktif akan dikeluarkan dan dihapus dari penyimpanan lokal.\n" +
-                    "• Posisi semua jendela layout akan dikembalikan ke susunan awal.\n\n" +
-                    "Apakah Anda yakin ingin melanjutkan Reset?"
+                    "• Seluruh data baris MBM, sinopsis, dan file dari SEMUA proyek akan dihapus bersih (kosong default).\n" +
+                    "• Seluruh file video dan link YouTube yang tersimpan akan dibersihkan total.\n" +
+                    "• Riwayat file dan parameter settingan akan dikembalikan ke awal.\n" +
+                    "• Posisi layout semua box akan dikembalikan ke susunan awal.\n\n" +
+                    "Apakah Anda yakin ingin melanjutkan Reset Total?"
                 );
                 if (!confirmed) return;
 
-                setHistoryStack(prev => [...prev, { rows: [...mbmRows], synopsis }]);
-                setMbmRows(defaultMbmData);
-                setSynopsis(defaultSynopsis);
-                setUploadedFileName("Video_Log_1793953368968.xlsx");
-                
-                if (videoUrl) {
+                if (videoUrl && !youtubeId && !videoUrl.startsWith('http')) {
                     URL.revokeObjectURL(videoUrl);
+                }
+                if (videoRef.current) {
+                    videoRef.current.pause();
                 }
                 setVideoFile(null);
                 setVideoUrl(null);
+                setYoutubeId(null);
                 setVideoDuration(0);
                 setCurrentTime(0);
                 setIsPlaying(false);
-                await removeVideoFromIDB();
+
+                // Bersihkan IndexedDB total
+                await clearAllVideosFromIDB();
+
+                // Bersihkan seluruh data proyek dari localStorage
+                for (let i = 1; i <= 10; i++) {
+                    localStorage.removeItem(`mbm_proj_data_${i}`);
+                }
+                localStorage.removeItem('mbm_rows_v3');
+                localStorage.removeItem('mbm_synopsis_v3');
+                localStorage.removeItem('mbm_uploadedFileName_v3');
+                localStorage.removeItem('mbm_youtube_id');
+                localStorage.removeItem('mbm_video_duration');
+                localStorage.removeItem('mbm_recentFiles');
+                localStorage.removeItem('mbm_video_masks_v1');
+                localStorage.removeItem('mbm_show_masks');
+                localStorage.removeItem('mbm_notes');
+                localStorage.removeItem('mbm_watermark');
+                localStorage.removeItem('mbm_projects_v2');
+                localStorage.removeItem('mbm_active_project_id');
+                localStorage.removeItem('mbm_box_positions');
+
+                const cleanProjects = [
+                    { id: 1, name: "Project 1", fileName: "Project 1", rowCount: 0, updatedAt: Date.now() },
+                    { id: 2, name: "Project 2", fileName: "Project 2", rowCount: 0, updatedAt: Date.now() },
+                    { id: 3, name: "Project 3", fileName: "Project 3", rowCount: 0, updatedAt: Date.now() }
+                ];
+                setProjects(cleanProjects);
+                setActiveProjectId(1);
+                setMbmRows([]);
+                setSynopsis("");
+                setUploadedFileName("Project 1");
+                setRecentFiles([]);
+                setMasks([]);
+                setIntervalMinutes(1);
+                setHistoryStack([]);
+                setInputVideoUrl("");
 
                 resetAllPositions();
-                localStorage.setItem('mbm_rows_v3', JSON.stringify(defaultMbmData));
-                localStorage.setItem('mbm_synopsis_v3', defaultSynopsis);
-                localStorage.setItem('mbm_uploadedFileName_v3', "Video_Log_1793953368968.xlsx");
-                notify("Seluruh data MBM, video, & posisi jendela berhasil direset!");
+                notify("Seluruh data, video, & proyek berhasil di-reset menjadi kosong (default bersih)!");
             };
 
             const handleUndo = () => {
@@ -2320,11 +2181,11 @@
             };
 
             const handleResetMbm = () => {
-                const confirmed = window.confirm("Apakah Anda yakin ingin memuat ulang 57 baris log referensi Starpro? Perubahan tabel saat ini akan ditimpa.");
+                const confirmed = window.confirm("Apakah Anda yakin ingin mengosongkan seluruh baris tabel MBM pada proyek ini?");
                 if (!confirmed) return;
                 setHistoryStack(prev => [...prev, { rows: [...mbmRows], synopsis }]);
-                setMbmRows(defaultMbmData);
-                notify("Daftar tabel MBM berhasil direset ke data referensi 57 baris!");
+                setMbmRows([]);
+                notify("Daftar tabel MBM pada proyek ini berhasil dikosongkan!");
             };
 
             function parseTimeToSeconds(str) {
@@ -2471,6 +2332,11 @@
                     return;
                 }
 
+                if (videoUrl && !youtubeId && !videoUrl.startsWith('http')) {
+                    URL.revokeObjectURL(videoUrl);
+                }
+                removeVideoFromIDB(activeProjectId);
+
                 // 1. Cek Link YouTube
                 const ytId = extractYouTubeId(rawUrl);
                 if (ytId) {
@@ -2480,7 +2346,7 @@
                     let actualTitle = ytId === 'Rp4ck6C_O5s' 
                         ? "BEDAH KELEBIHAN dan KEKURANGAN OMOWAY OMO-X SMART LONG RANGE | Otomotif TV" 
                         : `YouTube_${ytId}.mp4`;
-                    let actualDur = ytId === 'Rp4ck6C_O5s' ? 2325 : 1800; // 38m 45s untuk video Otomotif TV
+                    let actualDur = ytId === 'Rp4ck6C_O5s' ? 2325 : 0;
                     
                     setUploadedFileName(actualTitle);
                     setVideoDuration(actualDur);
@@ -2489,7 +2355,7 @@
 
                     try {
                         localStorage.setItem('mbm_youtube_id', ytId);
-                        localStorage.setItem('mbm_video_duration', actualDur.toString());
+                        if (actualDur > 0) localStorage.setItem('mbm_video_duration', actualDur.toString());
                         localStorage.setItem('mbm_uploadedFileName_v3', actualTitle);
                     } catch(e) {}
 
@@ -2523,6 +2389,7 @@
                 }
 
                 // 3. Direct Streaming Video (.mp4 / .webm)
+                localStorage.removeItem('mbm_youtube_id');
                 setYoutubeId(null);
                 setVideoUrl(rawUrl);
                 setVideoFile(null);
@@ -2545,22 +2412,29 @@
             const handleVideoUpload = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                if (videoUrl) URL.revokeObjectURL(videoUrl);
+                if (videoUrl && !youtubeId && !videoUrl.startsWith('http')) {
+                    URL.revokeObjectURL(videoUrl);
+                }
                 
                 const url = URL.createObjectURL(file);
                 setVideoFile(file);
                 setVideoUrl(url);
+                setYoutubeId(null); // CRITICAL: Reset youtubeId so player immediately switches to <video> tag!
                 setUploadedFileName(file.name);
+                setCurrentTime(0);
+                setIsPlaying(false);
                 
-                // Simpan video ke IndexedDB browser
-                await storeVideoInIDB(file);
+                // Simpan video ke IndexedDB browser khusus project ini
+                await storeVideoInIDB(file, activeProjectId);
+
+                localStorage.removeItem('mbm_youtube_id');
 
                 setRecentFiles(prev => {
                     const filtered = prev.filter(f => f.name !== file.name);
                     return [{ name: file.name, folder: "C:\\Users\\MNC Channel\\Downloads", type: "video", time: "Baru saja" }, ...filtered].slice(0, 8);
                 });
 
-                notify(`File video "${file.name}" berhasil diunggah & tersimpan!`);
+                notify(`File video "${file.name}" berhasil diunggah & tersimpan untuk ${projects.find(p => p.id === activeProjectId)?.name || 'Project ' + activeProjectId}!`);
             };
 
             // Hapus file dari riwayat / attachment
@@ -2575,16 +2449,17 @@
 
                 // Jika file yang dihapus sedang aktif di preview player
                 if (uploadedFileName === fileToDelete.name || (videoFile && videoFile.name === fileToDelete.name)) {
-                    if (videoUrl) {
+                    if (videoUrl && !youtubeId && !videoUrl.startsWith('http')) {
                         URL.revokeObjectURL(videoUrl);
                     }
                     setVideoFile(null);
                     setVideoUrl(null);
+                    setYoutubeId(null);
                     setVideoDuration(0);
                     setCurrentTime(0);
                     setIsPlaying(false);
-                    setUploadedFileName("Pilih atau Buka File Lain...");
-                    await removeVideoFromIDB();
+                    setUploadedFileName(projects.find(p => p.id === activeProjectId)?.name || `Project ${activeProjectId}`);
+                    await removeVideoFromIDB(activeProjectId);
                 }
 
                 notify(`"${fileToDelete.name}" berhasil dihapus dari riwayat!`);
@@ -2605,7 +2480,8 @@
                 setVideoDuration(0);
                 setCurrentTime(0);
                 setIsPlaying(false);
-                await removeVideoFromIDB();
+                await removeVideoFromIDB(activeProjectId);
+                localStorage.removeItem('mbm_youtube_id');
                 notify("Video berhasil dikeluarkan dari pemutar preview!");
             };
 
@@ -4778,9 +4654,17 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                 {/* DAFTAR BARIS MBM SCROLLABLE */}
                                                                 <div className="divide-y divide-white/5 overflow-y-auto custom-scroll flex-1 bg-slate-950/40 group-hover/mbm:bg-slate-950/90 transition-colors">
                                                                     {filteredRows.length === 0 ? (
-                                                                        <div className="text-center py-12 text-slate-400 text-xs font-bold">
-                                                                            Tidak ada adegan yang cocok.
-                                                                        </div>
+                                                                        searchTerm.trim() ? (
+                                                                            <div className="text-center py-10 text-slate-400 text-xs font-bold">
+                                                                                Tidak ada adegan yang cocok.
+                                                                            </div>
+                                                                        ) : (
+                                                                            <div className="text-center py-10 px-4 text-slate-400 text-xs font-medium space-y-1.5">
+                                                                                <i className="fa-solid fa-film text-xl text-slate-500 mb-1 block"></i>
+                                                                                <p className="font-bold text-slate-200">Belum ada segmen</p>
+                                                                                <p className="text-[10px] text-slate-400">Klik + Tambah Cepat untuk baris baru</p>
+                                                                            </div>
+                                                                        )
                                                                     ) : (
                                                                         filteredRows.map((row, idx) => {
                                                                             const parts = row.rentangWaktu.split('-');
@@ -6815,9 +6699,21 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                     {/* Daftar Baris Adegan MBM (Scrollable seperti Playlist YouTube) */}
                                     <div ref={mbmListRef} className="divide-y divide-slate-100 max-h-[600px] overflow-y-auto custom-scroll">
                                         {filteredRows.length === 0 ? (
-                                            <div className="text-center py-12 text-slate-400 text-xs font-bold">
-                                                Tidak ada adegan yang cocok dengan pencarian "{searchTerm}".
-                                            </div>
+                                            searchTerm.trim() ? (
+                                                <div className="text-center py-12 text-slate-400 text-xs font-bold">
+                                                    Tidak ada adegan yang cocok dengan pencarian "{searchTerm}".
+                                                </div>
+                                            ) : (
+                                                <div className="text-center py-12 px-4 text-slate-400 text-xs font-medium space-y-2">
+                                                    <div className="w-12 h-12 mx-auto rounded-2xl bg-slate-100 flex items-center justify-center text-slate-400 text-lg mb-2">
+                                                        <i className="fa-solid fa-film"></i>
+                                                    </div>
+                                                    <p className="font-bold text-slate-700 text-sm">Belum ada data segmen MBM</p>
+                                                    <p className="text-[11px] text-slate-400 max-w-sm mx-auto leading-relaxed">
+                                                        Unggah video lokal atau masukkan link YouTube, lalu klik <strong>Generate AI</strong> untuk menganalisis adegan otomatis, atau klik <strong>+ Tambah Baris MBM</strong> untuk membuat baris manual.
+                                                    </p>
+                                                </div>
+                                            )
                                         ) : (
                                             filteredRows.map((row, idx) => {
                                                 const isRowActive = row.id === activeRowId;
@@ -7291,8 +7187,49 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
             );
         }
 
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, error: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, error };
+            }
+            componentDidCatch(error, errorInfo) {
+                console.error("ErrorBoundary caught:", error, errorInfo);
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div style={{ padding: '40px', fontFamily: 'sans-serif', textAlign: 'center', backgroundColor: '#0f172a', color: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ maxWidth: '600px', backgroundColor: '#1e293b', padding: '30px', borderRadius: '20px', border: '1px solid #334155' }}>
+                                <h2 style={{ color: '#ef4444', fontSize: '20px', fontWeight: 'bold', marginBottom: '10px' }}>Terjadi Kendala Tampilan</h2>
+                                <p style={{ fontSize: '13px', color: '#94a3b8', marginBottom: '20px' }}>
+                                    {this.state.error?.message || "Terjadi kesalahan sistem saat memuat komponen."}
+                                </p>
+                                <button 
+                                    onClick={() => {
+                                        localStorage.clear();
+                                        window.location.reload();
+                                    }}
+                                    style={{ backgroundColor: '#ccff00', color: '#000', fontWeight: 'bold', padding: '10px 20px', borderRadius: '12px', border: 'none', cursor: 'pointer', fontSize: '12px' }}
+                                >
+                                    Bersihkan Cache & Refresh Halaman
+                                </button>
+                            </div>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>
+        );
     </script>
 </body>
 </html>
