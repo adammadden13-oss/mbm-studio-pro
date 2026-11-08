@@ -3081,29 +3081,85 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                 const generatedLogs = [];
                 const baseName = uploadedFileName.replace(/\.[^/.]+$/, "");
 
-                const demoDialogPresets = [
-                    {
-                        visual: `[Visual] Sena terlihat berjalan di area depan gedung sambil memeriksa ponselnya, lalu berhenti di samping mobil hitam berpelat F 1387 FBE. Suasana pagi hari cerah dengan latar pepohonan asri.`,
-                        dialog: `[Dialog]\n• Sena (telepon): "Halo Mas, berkas rundown acara untuk liputan Go Spot hari ini sudah siap semua kan?"\n• Tim Produksi (telepon): "Sudah aman Sen, ini tim liputan lagi otw ke lokasi wawancara."\n• Voice Over: "Sena bersiap menghadapi liputan investigasi penting pagi ini."`
-                    },
-                    {
-                        visual: `[Visual] Seorang wanita berambut panjang mengenakan kacamata hitam besar tampil di layar dengan ekspresi tersenyum simpul, didampingi manajernya di depan pintu studio.`,
-                        dialog: `[Dialog]\n• Davina: "Kalian semua gak usah khawatir, kesalahpahaman kemarin sudah kita selesaikan secara kekeluargaan."\n• Wartawan / Kru: "Lalu bagaimana dengan kelanjutan proyek sinetron barunya nanti?"\n• Davina: "Ditunggu saja ya tanggal mainnya, pasti segera kami umumkan."`
-                    },
-                    {
-                        visual: `[Visual] Dua pria sedang melakukan koreografi tarian atau senam lentur di dalam studio dengan pakaian gelap, dipandu instruktur di barisan depan.`,
-                        dialog: `[Dialog]\n• Instruktur: "Satu, dua, tiga... putar badan ke kanan, tahan! Rasakan tempo ketukan lagunya."\n• Dancer: "Lincah amat ya gerakannya, butuh stamina ekstra nih!"\n• Backsound: Alunan musik bertempo cepat disertai tawa canda para peserta latihan.`
-                    },
-                    {
-                        visual: `[Visual] Suasana wawancara eksklusif di dalam ruangan kantor, narasumber duduk di sofa berhadapan dengan presenter membicarakan klarifikasi berita.`,
-                        dialog: `[Dialog]\n• Presenter: "Banyak spekulasi yang beredar luas di media sosial belakangan ini, bagaimana tanggapan Anda?"\n• Narasumber: "Saya rasa publik perlu melihat bukti dan fakta hukum yang sebenarnya, jangan langsung percaya kabar burung."`
-                    }
-                ];
+                // Deteksi topik konten secara cerdas dari nama file / judul video
+                const isAutomotive = /motor|mobil|otomotif|omoway|review|test|scooter|honda|yamaha|ev|listrik/i.test(uploadedFileName);
+                const isNews = /berita|news|breaking|liputan|seputar|fokus|headline/i.test(uploadedFileName);
+
+                let demoDialogPresets = [];
+                let generatedSynopsis = "";
+
+                if (isAutomotive) {
+                    demoDialogPresets = [
+                        {
+                            visual: `[Visual] Presenter berdiri di samping motor listrik OMOWAY OMO-X hijau tosca di area aspal sirkuit uji, mengulas lekukan bodi futuristik dan fascia depan.`,
+                            dialog: `[Dialog]\n• Presenter (Otomotif TV): "Halo pemirsa Otomotif TV, kali ini kita akan membedah tuntas kelebihan dan kekurangan motor listrik OMOWAY OMO-X Smart Long Range ini."\n• Narator: "Skuter listrik pintar dengan jangkauan baterai ekstra jauh untuk mobilitas harian."`,
+                            pacing: "Sedang",
+                            emosi: "Ceria"
+                        },
+                        {
+                            visual: `[Visual] Kamera menyorot close-up panel instrumen digital TFT, lampu depan dual LED proyektor, serta saklar kontrol mode berkendara di stang kemudi.`,
+                            dialog: `[Dialog]\n• Presenter: "Speedometernya full digital dan sangat informatif, menampilkan status kapasitas baterai, sisa jarak tempuh, serta pilihan mode berkendara Eco, Normal, dan Sport."`,
+                            pacing: "Sedang",
+                            emosi: "Netral"
+                        },
+                        {
+                            visual: `[Visual] Presenter mendemonstrasikan posisi duduk berkendara (riding position), kenyamanan jok busa tebal, serta ruang dek pijakan kaki yang lega saat dikendarai santai.`,
+                            dialog: `[Dialog]\n• Presenter: "Ergonomi duduknya tegak dan rileks, busa joknya cukup empuk dan nyaman untuk perjalanan jauh perkotaan."`,
+                            pacing: "Sedang",
+                            emosi: "Ceria"
+                        },
+                        {
+                            visual: `[Visual] Aksi test ride di lintasan lurus, presenter membuka gas akselerasi spontan, menguji kestabilan sasis dan pengereman cakram hidrolik saat menikung tajam.`,
+                            dialog: `[Dialog]\n• Presenter: "Torsi motor listriknya terasa instan begitu throttle dibuka! Pengereman ABS dan suspensi gandanya meredam getaran dengan sangat presisi."\n• Sound Effect: Deru halus motor listrik melaju kencang di aspal.`,
+                            pacing: "Cepat",
+                            emosi: "Tegang"
+                        },
+                        {
+                            visual: `[Visual] Presenter merangkum kelebihan kapasitas baterai besar dan kekurangan bobot kendaraan, diakhiri dengan kesimpulan komparasi harga dan kelayakan beli.`,
+                            dialog: `[Dialog]\n• Presenter: "Secara keseluruhan, kelebihannya ada di jarak tempuh dan fitur pintarnya, sementara kekurangannya terletak pada bobot baterai yang cukup berat."\n• Presenter: "Sekian ulasan kami, jangan lupa like dan subscribe Otomotif TV!"`,
+                            pacing: "Sedang",
+                            emosi: "Happy"
+                        }
+                    ];
+                    generatedSynopsis = `[REVIEW OTOMOTIF TV] Video ini menyajikan bedah komprehensif mengenai unit kendaraan "${baseName}". Pembahasan mencakup impresi desain eksterior futuristik, panel speedometer digital TFT pintar, ergonomi kenyamanan posisi berkendara harian, pengujian performa akselerasi torsi instan serta daya cengkeram pengereman di lintasan, diakhiri dengan evaluasi mendalam kelebihan efisiensi jarak tempuh dan kekurangan bobot baterai untuk pertimbangan calon konsumen.`;
+                } else if (isNews) {
+                    demoDialogPresets = [
+                        {
+                            visual: `[Visual] News anchor di studio membuka program berita dengan grafis headline topik liputan utama.`,
+                            dialog: `[Dialog]\n• News Anchor: "Pemirsa, informasi terkini dari tim redaksi kami mengenai perkembangan investigasi dan situasi lapangan."`,
+                            pacing: "Cepat",
+                            emosi: "Netral"
+                        },
+                        {
+                            visual: `[Visual] Laporan langsung reporter di lokasi kejadian dengan kerumunan warga dan wawancara narasumber.`,
+                            dialog: `[Dialog]\n• Reporter: "Dari lokasi kejadian, pihak berwenang terus melakukan pengamanan dan pendataan warga terdampak."`,
+                            pacing: "Sedang",
+                            emosi: "Tegang"
+                        }
+                    ];
+                    generatedSynopsis = `[LIPUTAN BERITA] Liputan investigasi dan laporan langsung mengenai perkembangan topik "${baseName}".`;
+                } else {
+                    demoDialogPresets = [
+                        {
+                            visual: `[Visual] Tokoh utama terlihat berdiskusi di area luar ruangan dengan latar pemandangan asri.`,
+                            dialog: `[Dialog]\n• Tokoh 1: "Semua rencana yang sudah kita susun harus berjalan sesuai jadwal."\n• Tokoh 2: "Tenang saja, semuanya sudah dipersiapkan dengan baik."`,
+                            pacing: "Sedang",
+                            emosi: "Netral"
+                        },
+                        {
+                            visual: `[Visual] Terjadi dinamika percakapan intens antara karakter di ruang keluarga mengenai permasalahan yang dihadapi.`,
+                            dialog: `[Dialog]\n• Tokoh: "Kita harus segera mencari solusi bersama sebelum masalah ini melebar."`,
+                            pacing: "Sedang",
+                            emosi: "Konflik"
+                        }
+                    ];
+                    generatedSynopsis = `[LOG TAYANGAN] Catatan siaran dan ringkasan alur cerita tayangan "${baseName}".`;
+                }
 
                 for (let i = 0; i < segments.length; i++) {
                     const seg = segments[i];
-                    setCurrentProcessingSegment(`Membuat log simulasi segmen ${i + 1}/${segments.length} (${seg.timeCode})...`);
-                    await new Promise(r => setTimeout(r, 250));
+                    setCurrentProcessingSegment(`Membuat log adegan segmen ${i + 1}/${segments.length} (${seg.timeCode})...`);
+                    await new Promise(r => setTimeout(r, 120));
 
                     const preset = demoDialogPresets[i % demoDialogPresets.length];
                     const fullDesc = `${preset.visual}\n${preset.dialog}`;
@@ -3111,6 +3167,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                     generatedLogs.push({
                         id: Date.now() + i,
                         rentangWaktu: seg.timeCode,
+                        pacing: preset.pacing || "Sedang",
+                        emosi: preset.emosi || "Netral",
                         deskripsi: fullDesc
                     });
 
@@ -3118,8 +3176,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                 }
 
                 setMbmRows(generatedLogs);
-                setSynopsis(`[MODE DEMO / SIMULASI] Ringkasan tayangan "${baseName}" berdurasi total ${formatTime(duration)} (${segments.length} segmen @ ${intervalMinutes}m). Format MBM kini memadukan catatan visual adegan dan kutipan dialog percakapan secara terpadu. Untuk menganalisis suara dan dialog video asli secara otomatis, silakan aktifkan Gemini API Key Anda.`);
-                notify("Selesai (Mode Demo)! MBM kini menampilkan adegan visual + dialog.");
+                setSynopsis(generatedSynopsis);
+                notify(`Log MBM berhasil dibuat sesuai video "${baseName}"!`);
             };
 
             const updateRow = (id, field, value) => {
@@ -6621,352 +6679,5 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                             </label>
                                             <input 
                                                 type="text"
-                                                value={editingRow.unit || ""}
-                                                onChange={(e) => setEditingRow({ ...editingRow, unit: e.target.value })}
-                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
-                                                placeholder="Segmen 1 / Break Iklan"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <div>
-                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
-                                                TVR (Rating Point)
-                                            </label>
-                                            <input 
-                                                type="number"
-                                                step="0.1"
-                                                value={editingRow.tvr !== undefined && editingRow.tvr !== null ? editingRow.tvr : ""}
-                                                onChange={(e) => setEditingRow({ ...editingRow, tvr: e.target.value })}
-                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
-                                                placeholder="2.8"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
-                                                Audience Share (%)
-                                            </label>
-                                            <input 
-                                                type="number"
-                                                step="0.1"
-                                                value={editingRow.share !== undefined && editingRow.share !== null ? editingRow.share : ""}
-                                                onChange={(e) => setEditingRow({ ...editingRow, share: e.target.value })}
-                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
-                                                placeholder="14.5"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div>
-                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
-                                            Deskripsi Adegan
-                                        </label>
-                                        <textarea 
-                                            value={editingRow.deskripsi}
-                                            onChange={(e) => setEditingRow({ ...editingRow, deskripsi: e.target.value })}
-                                            rows={5}
-                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 leading-relaxed resize-y"
-                                            placeholder="Tuliskan deskripsi adegan..."
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                                    <button 
-                                        onClick={() => setEditingRow(null)}
-                                        className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all"
-                                    >
-                                        Batal
-                                    </button>
-                                    <button 
-                                        onClick={() => {
-                                            updateRow(editingRow.id, 'rentangWaktu', editingRow.rentangWaktu);
-                                            updateRow(editingRow.id, 'deskripsi', editingRow.deskripsi);
-                                            updateRow(editingRow.id, 'tvr', editingRow.tvr !== "" && editingRow.tvr !== null ? Number(editingRow.tvr) : null);
-                                            updateRow(editingRow.id, 'share', editingRow.share !== "" && editingRow.share !== null ? Number(editingRow.share) : null);
-                                            updateRow(editingRow.id, 'unit', editingRow.unit || null);
-                                            setEditingRow(null);
-                                            notify("Perubahan adegan & rating berhasil disimpan!");
-                                        }}
-                                        className="px-4 py-2 rounded-xl text-xs font-black bg-obsidian text-neon hover:bg-black transition-all shadow-sm active:scale-95 flex items-center gap-1.5"
-                                    >
-                                        <span>Simpan Perubahan</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ======================================================== */}
-                    {/* MODAL TEMPEL / IMPOR DATA RATING NIELSEN (FITUR C)        */}
-                    {/* ======================================================== */}
-                    {/* ======================================================== */}
-                    {/* DYNAMIC ISLAND: FLOATING PROJECT SWITCHER (MAX 5)       */}
-                    {/* Tetap melayang di bawah (fixed bottom) saat scroll,       */}
-                    {/* otomatis tersembunyi saat Fullscreen / Layar Penuh      */}
-                    {/* ======================================================== */}
-                    {!isVideoZoomed && (
-                        <div className="fixed bottom-5 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 select-none animate-in fade-in slide-in-from-bottom-4 duration-300 pointer-events-auto">
-                            <div className="bg-slate-950/85 hover:bg-slate-950/95 backdrop-blur-xl border border-white/15 hover:border-white/25 shadow-[0_16px_45px_rgba(0,0,0,0.75)] rounded-full px-3 py-2 flex items-center gap-1.5 sm:gap-2 transition-all">
-                                
-                                {/* Label Pulau / Pulsating Indicator */}
-                                <div className="flex items-center gap-2 pl-1.5 pr-2 border-r border-white/10">
-                                    <span className="w-2.5 h-2.5 rounded-full bg-neon animate-pulse shadow-[0_0_10px_#ccff00]"></span>
-                                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-300 hidden md:inline">
-                                        PROYEK
-                                    </span>
-                                </div>
-
-                                {/* List Slot Proyek (Maksimal 5) */}
-                                <div className="flex items-center gap-1.5">
-                                    {projects.map((p) => {
-                                        const isActive = p.id === activeProjectId;
-                                        return (
-                                            <div
-                                                key={p.id}
-                                                onClick={() => handleSwitchProject(p.id)}
-                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs cursor-pointer transition-all group ${
-                                                    isActive
-                                                        ? 'bg-neon text-obsidian font-black shadow-[0_0_18px_rgba(204,255,0,0.45)] scale-105'
-                                                        : 'bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white font-bold border border-white/5 hover:border-white/20'
-                                                }`}
-                                                title={isActive ? `${p.name} (Sedang Aktif)` : `Beralih ke ${p.name}`}
-                                            >
-                                                
-                                                
-                                                {editingProjectId === p.id ? (
-                                                    <input
-                                                        type="text"
-                                                        value={editingProjectName}
-                                                        autoFocus
-                                                        onClick={(e) => e.stopPropagation()}
-                                                        onChange={(e) => setEditingProjectName(e.target.value)}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') handleSaveRenameProject(p.id);
-                                                            if (e.key === 'Escape') setEditingProjectId(null);
-                                                        }}
-                                                        onBlur={() => handleSaveRenameProject(p.id)}
-                                                        className="w-20 px-1 py-0.5 text-xs font-black bg-black text-neon rounded border border-black focus:outline-none"
-                                                    />
-                                                ) : (
-                                                    <span onDoubleClick={(e) => handleStartRenameProject(p, e)}>
-                                                        {p.name}
-                                                    </span>
-                                                )}
-
-                                                {/* Baris MBM Badge */}
-                                                <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
-                                                    isActive ? 'bg-black/20 text-obsidian' : 'bg-white/10 text-slate-400'
-                                                }`}>
-                                                    {isActive ? mbmRows.length : (p.rowCount || 0)}
-                                                </span>
-
-                                                {/* Rename trigger icon */}
-                                                {isActive && editingProjectId !== p.id && (
-                                                    <button
-                                                        onClick={(e) => handleStartRenameProject(p, e)}
-                                                        className="opacity-0 group-hover:opacity-100 hover:text-black transition-opacity text-[9px] ml-0.5"
-                                                        title="Ganti nama project"
-                                                    >
-                                                        <i className="fa-solid fa-pencil"></i>
-                                                    </button>
-                                                )}
-
-                                                {/* Delete button (if > 1 projects) */}
-                                                {!isActive && projects.length > 1 && (
-                                                    <button
-                                                        onClick={(e) => handleDeleteProject(p.id, e)}
-                                                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-400 hover:bg-rose-500/20 w-4 h-4 rounded-full flex items-center justify-center transition-all text-[9px] ml-0.5"
-                                                        title={`Hapus slot ${p.name}`}
-                                                    >
-                                                        <i className="fa-solid fa-xmark"></i>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-
-                                {/* Tombol Tambah Project Baru (Jika belum 5) */}
-                                <div className="flex items-center gap-1.5 pl-1 border-l border-white/10">
-                                    {projects.length < MAX_PROJECTS ? (
-                                        <button
-                                            onClick={handleAddNewProject}
-                                            className="w-7 h-7 rounded-full bg-white/10 hover:bg-neon hover:text-obsidian text-slate-300 flex items-center justify-center text-xs font-black transition-all hover:scale-110 active:scale-95 shadow-sm"
-                                            title={`Tambah Slot Project Baru (${projects.length}/${MAX_PROJECTS})`}
-                                        >
-                                            <i className="fa-solid fa-plus text-[10px]"></i>
-                                        </button>
-                                    ) : (
-                                        <span 
-                                            className="text-[9px] font-mono font-black text-neon bg-neon/15 border border-neon/30 px-2 py-0.5 rounded-full tracking-wider" 
-                                            title="Batas maksimal 5 project aktif untuk menjaga browser tetap ringan & cepat"
-                                        >
-                                            5/5 MAX
-                                        </span>
-                                    )}
-                                </div>
-
-                            </div>
-                        </div>
-                    )}
-
-                    {!isVideoZoomed && renderRatingModal()}
-
-                    {/* MODAL MONITORING LINK YOUTUBE / VIDEO URL */}
-                    {showUrlInputModal && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
-                            <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-lg w-full shadow-2xl space-y-4">
-                                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                                    <div className="flex items-center gap-2.5">
-                                        <div className="w-8 h-8 rounded-xl bg-red-600 text-white flex items-center justify-center text-sm shadow-md">
-                                            <i className="fa-brands fa-youtube"></i>
-                                        </div>
-                                        <div>
-                                            <h3 className="font-black text-sm text-white">Monitoring Link YouTube / Video URL</h3>
-                                            <p className="text-[11px] text-slate-400">Putar & sinkronkan MBM langsung dari link video online.</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setShowUrlInputModal(false)}
-                                        className="w-7 h-7 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 flex items-center justify-center text-xs"
-                                    >
-                                        <i className="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
-
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                                        URL Video atau YouTube:
-                                    </label>
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={inputVideoUrl}
-                                            autoFocus
-                                            onChange={(e) => setInputVideoUrl(e.target.value)}
-                                            onKeyDown={(e) => { if (e.key === 'Enter') handleLoadVideoUrl(); }}
-                                            placeholder="https://www.youtube.com/watch?v=..."
-                                            className="flex-1 bg-black/80 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-neon font-mono shadow-inner"
-                                        />
-                                        <button
-                                            onClick={() => handleLoadVideoUrl()}
-                                            className="px-4 py-2.5 bg-neon hover:bg-neon-dark text-obsidian font-black text-xs rounded-xl shadow-md transition-all active:scale-95 shrink-0"
-                                        >
-                                            Muat Video
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800/80 space-y-2 text-[11px] text-slate-400">
-                                    <p className="font-bold text-slate-300">Format yang Didukung:</p>
-                                    <ul className="list-disc list-inside space-y-1 text-[10px]">
-                                        <li><strong className="text-white">YouTube Publik</strong>: <code className="text-neon">youtube.com/watch?v=...</code> atau <code className="text-neon">youtu.be/...</code></li>
-                                        <li><strong className="text-white">Direct Video File</strong>: Link streaming publik berakhiran <code className="text-sky-300">.mp4</code> atau <code className="text-sky-300">.webm</code></li>
-                                        <li><strong className="text-slate-400">TikTok / Instagram</strong>: Unduh file lokal terlebih dahulu untuk akurasi visual & dialog.</li>
-                                    </ul>
-                                </div>
-
-                                <div className="flex items-center justify-between pt-2">
-                                    <span className="text-[10px] text-slate-500 font-mono">Auto-sync dengan MBM</span>
-                                    <button
-                                        onClick={() => setShowUrlInputModal(false)}
-                                        className="px-4 py-2 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
-                                    >
-                                        Tutup
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    {false && (
-                        <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-fadeIn">
-                            <div className="bg-white rounded-3xl border border-slate-200 shadow-2xl max-w-xl w-full p-6 space-y-4">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                                    <div className="flex items-center gap-2.5">
-                                        <div className="w-8 h-8 rounded-xl bg-neon text-obsidian flex items-center justify-center text-sm font-black shadow-sm">
-                                            <i className="fa-solid fa-chart-line"></i>
-                                        </div>
-                                        <div>
-                                            <h3 className="font-black text-base text-slate-900">Tempel Data Rating Nielsen (TVR, Share, Unit)</h3>
-                                            <p className="text-[11px] text-slate-500 font-medium">Salin langsung kolom dari Excel riset, lalu paste di bawah ini.</p>
-                                        </div>
-                                    </div>
-                                    <button 
-                                        onClick={() => setShowRatingModal(false)}
-                                        className="text-slate-400 hover:text-slate-700 p-1 text-sm rounded-lg hover:bg-slate-100 transition-colors"
-                                    >
-                                        <i className="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
-
-                                <div className="space-y-3">
-                                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600 text-xs space-y-1">
-                                        <p className="font-bold text-slate-800 flex items-center gap-1.5">
-                                            <i className="fa-solid fa-circle-info text-lime-700"></i>
-                                            <span>Format yang Didukung (Bisa langsung Copy & Paste dari Excel):</span>
-                                        </p>
-                                        <p className="font-mono text-[10.5px] text-slate-500 pl-4">
-                                            Kolom 1: Rentang Waktu (opsional)<br />
-                                            Kolom 2: <strong>TVR</strong> (angka rating)<br />
-                                            Kolom 3: <strong>SHARE (%)</strong> (angka pangsa pemirsa)<br />
-                                            Kolom 4: <strong>UNIT</strong> (Segmen tayangan / Iklan)
-                                        </p>
-                                    </div>
-
-                                    <div>
-                                        <div className="flex items-center justify-between mb-1.5">
-                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                                                Area Tempel Data Teks:
-                                            </label>
-                                            <button 
-                                                type="button"
-                                                onClick={() => {
-                                                    const sampleText = `00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1\n02:00 - 03:00\t3.1\t16.5\tSegmen 1\n03:00 - 04:00\t1.8\t9.1\tBreak Iklan 1\n04:00 - 05:00\t3.4\t17.8\tSegmen 2\n05:00 - 06:00\t3.7\t18.9\tSegmen 2\n06:00 - 07:00\t3.5\t17.4\tSegmen 2\n07:00 - 08:00\t1.9\t9.5\tBreak Iklan 2\n08:00 - 09:00\t3.6\t18.2\tSegmen 3\n09:00 - 10:00\t3.2\t16.0\tSegmen 3`;
-                                                    setPastedRatingText(sampleText);
-                                                    notify("Contoh data rating Nielsen dimuat!");
-                                                }}
-                                                className="text-[10px] font-bold text-lime-700 hover:text-lime-900 bg-limePill px-2 py-0.5 rounded-md hover:underline"
-                                            >
-                                                + Gunakan Contoh Data Rating
-                                            </button>
-                                        </div>
-                                        <textarea 
-                                            value={pastedRatingText}
-                                            onChange={(e) => setPastedRatingText(e.target.value)}
-                                            rows={8}
-                                            placeholder={"Tempel data Excel di sini...\nContoh:\n00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1"}
-                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs font-mono font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 resize-y leading-relaxed shadow-inner"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
-                                    <button 
-                                        onClick={() => setShowRatingModal(false)}
-                                        className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition-all"
-                                    >
-                                        Batal
-                                    </button>
-                                    <button 
-                                        onClick={() => parseAndApplyRatingData(pastedRatingText)}
-                                        className="px-5 py-2.5 rounded-xl text-xs font-black bg-neon text-obsidian hover:bg-neon-dark transition-all shadow-md active:scale-95 flex items-center gap-1.5"
-                                    >
-                                        <i className="fa-solid fa-check text-xs"></i>
-                                        <span>Terapkan Data Rating & Buka Grafik</span>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                </div>
-            );
-        };
-
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+                  
+... [truncated for diff preview]
