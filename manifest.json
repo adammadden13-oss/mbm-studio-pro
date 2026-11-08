@@ -1,0 +1,20 @@
+{
+  "name": "MBM Studio Pro - Minute by Minute Video Log Generator",
+  "short_name": "MBM Studio",
+  "description": "Aplikasi Minute-by-Minute Video Logging, Analisis Performa Rating TV Nielsen, dan AI Gemini Vision Logging",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "192x192 512x512 any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
