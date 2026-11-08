@@ -3015,17 +3015,17 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                         if (lang !== "id") {
                                             setLang("id");
                                             localStorage.setItem("mbm_app_lang", "id");
-                                            notify("Bahasa diubah ke Bahasa Indonesia 🇮🇩");
+                                            notify("Bahasa diubah ke Bahasa Indonesia");
                                         }
                                     }}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                                    className={`px-3 py-1 rounded-lg text-xs font-black transition-all flex items-center justify-center ${
                                         lang === "id" 
                                             ? "bg-obsidian text-neon shadow-sm" 
                                             : "text-slate-500 hover:text-slate-800"
                                     }`}
                                     title="Ganti ke Bahasa Indonesia"
                                 >
-                                    <span>🇮🇩</span>
+                                    
                                     <span>ID</span>
                                 </button>
                                 <button 
@@ -3034,17 +3034,17 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                         if (lang !== "en") {
                                             setLang("en");
                                             localStorage.setItem("mbm_app_lang", "en");
-                                            notify("Language switched to English 🇬🇧");
+                                            notify("Language switched to English");
                                         }
                                     }}
-                                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition-all flex items-center gap-1.5 ${
+                                    className={`px-3 py-1 rounded-lg text-xs font-black transition-all flex items-center justify-center ${
                                         lang === "en" 
                                             ? "bg-obsidian text-neon shadow-sm" 
                                             : "text-slate-500 hover:text-slate-800"
                                     }`}
                                     title="Switch to English"
                                 >
-                                    <span>🇬🇧</span>
+                                    
                                     <span>EN</span>
                                 </button>
                             </div>
@@ -3386,7 +3386,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                         title={lang === "id" ? "Switch to English (Bahasa)" : "Ganti ke Bahasa Indonesia"}
                                                                     >
                                                                         <i className="fa-solid fa-globe text-neon text-xs"></i>
-                                                                        <span>{lang === "id" ? "🇮🇩 ID" : "🇬🇧 EN"}</span>
+                                                                        <span>{lang === "id" ? "ID" : "EN"}</span>
                                                                     </button>
                                                                     <button 
                                                                         onClick={toggleFullscreen}
@@ -3745,7 +3745,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                                                 <div 
                                                                     className="absolute left-2 sm:left-4 right-2 sm:right-4 bottom-12 sm:bottom-14 z-30 pointer-events-auto transition-all duration-200 select-none"
                                                                 >
-                                                                    <div className={"bg-slate-950/80 hover:bg-slate-950/95 backdrop-blur-md border border-white/15 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.85)] text-white transition-all overflow-hidden group/chart " + (isChartCompact ? "px-2.5 py-1.5" : "p-2 sm:p-2.5")}>
+                                                                    <div className={"border border-white/15 bg-slate-950/40 backdrop-blur-md opacity-40 hover:opacity-100 hover:bg-slate-950/95 hover:border-slate-700/80 hover:shadow-[0_25px_60px_rgba(0,0,0,0.9)] rounded-3xl shadow-2xl text-white transition-[opacity,background-color,border-color,box-shadow] duration-200 overflow-hidden group/chart " + (isChartCompact ? "px-2.5 py-1.5" : "p-2 sm:p-2.5")}>
                                                                         {/* Header Bar Ringkas & Transparan */}
                                                                         <div className={"flex items-center justify-between gap-2 transition-all " + (isChartCompact ? "" : "pb-1.5 mb-1 border-b border-white/10")}>
                                                                             <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
@@ -5229,7 +5229,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                             {isGenerating ? (
                                                 <i className="fa-solid fa-spinner animate-spin text-xs"></i>
                                             ) : (
-                                                <i className="fa-solid fa-wand-magic-sparkles text-[11px]"></i>
+                                                null
                                             )}
                                             <span>{generationSpeedMode === "turbo" ? t("generateAiTurbo") : t("generateAiParallel")}</span>
                                         </button>
@@ -5252,10 +5252,10 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON:
                                     <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
                                         <button 
                                             onClick={() => setShowRatingModal(true)}
-                                            className="bg-[#f4fce3] hover:bg-[#eaf9cc] text-slate-900 border border-limeBorder text-[11px] font-black px-3 py-2 rounded-xl transition-all shadow-sm shrink-0 active:scale-95 flex items-center gap-1.5"
+                                            className="bg-[#f4fce3] hover:bg-[#eaf9cc] text-slate-900 border border-limeBorder text-[11px] font-black px-3.5 py-2 rounded-xl transition-all shadow-sm shrink-0 active:scale-95 flex items-center justify-center"
                                             title="Tempel atau impor data TVR, Share, dan Unit dari Excel Nielsen"
                                         >
-                                            <i className="fa-solid fa-chart-line text-lime-700 text-[10px]"></i>
+                                            
                                             <span>{t("pasteNielsen")}</span>
                                         </button>
 
