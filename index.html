@@ -1102,16 +1102,70 @@
             const [pastedRatingText, setPastedRatingText] = useState("");
             const [isAutoScrollMbm, setIsAutoScrollMbm] = useState(true);
             const [isChartCompact, setIsChartCompact] = useState(false);
-            const [showChartTvr, setShowChartTvr] = useState(true);
-            const [showChartShare, setShowChartShare] = useState(true);
             const [showChartDelta, setShowChartDelta] = useState(true);
             const [showAnalyticsDrawer, setShowAnalyticsDrawer] = useState(false);
             const mbmListRef = useRef(null);
             const rowRefs = useRef({});
 
+            // Tinggi Grafik Dinamis (Attachment 4: Dapat ditarik / di-resize tingginya)
+            const [chartCustomHeight, setChartCustomHeight] = useState(() => {
+                try {
+                    const s = parseInt(localStorage.getItem('mbm_chart_custom_height'));
+                    if (s && s >= 60 && s <= 400) return s;
+                } catch(e) {}
+                return 120;
+            });
+
+            // Metrik Rating Fleksibel & Dinamis (Attachment 3 & 4)
+            // Bisa TVR, Share, Reach, Impression, atau hanya 1 kolom data
+            const [chartMetrics, setChartMetrics] = useState(() => {
+                try {
+                    const saved = localStorage.getItem('mbm_chart_metrics_v2');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                    }
+                } catch(e) {}
+                return [
+                    { key: 'tvr', label: 'TVR (Rating)', color: '#ccff00', active: true, isPercent: false },
+                    { key: 'share', label: 'Share (%)', color: '#38bdf8', active: true, isPercent: true }
+                ];
+            });
+
+            const toggleMetricActive = (metricKey) => {
+                setChartMetrics(prev => {
+                    const updated = prev.map(m => m.key === metricKey ? { ...m, active: !m.active } : m);
+                    localStorage.setItem('mbm_chart_metrics_v2', JSON.stringify(updated));
+                    return updated;
+                });
+            };
+
+            const showChartTvr = chartMetrics.find(m => m.key === 'tvr')?.active ?? false;
+            const showChartShare = chartMetrics.find(m => m.key === 'share')?.active ?? false;
+
+            // Deteksi Waktu Awal Siaran Broadcast (misal: 14:00:00 = 50400s)
+            // Mencegah video freeze saat diklik pada menit siaran
+            const broadcastBaseTime = React.useMemo(() => {
+                if (!mbmRows || mbmRows.length === 0) return 0;
+                for (let i = 0; i < mbmRows.length; i++) {
+                    const row = mbmRows[i];
+                    if (!row || !row.rentangWaktu) continue;
+                    const parts = row.rentangWaktu.split('-');
+                    if (parts.length >= 1) {
+                        const s = parseTimeToSeconds(parts[0]);
+                        const vDur = videoDuration || (videoRef.current && videoRef.current.duration) || 0;
+                        if (s > vDur && s >= 1800) {
+                            return s;
+                        }
+                    }
+                }
+                return 0;
+            }, [mbmRows, videoDuration]);
+
             // Deteksi Baris MBM yang Sedang Berjalan (Active Row) Berdasarkan currentTime Video
             const activeRowId = React.useMemo(() => {
                 if (!mbmRows || mbmRows.length === 0) return null;
+                const rowCurrentTime = broadcastBaseTime > 0 ? (currentTime + broadcastBaseTime) : currentTime;
                 for (let i = 0; i < mbmRows.length; i++) {
                     const row = mbmRows[i];
                     if (!row.rentangWaktu) continue;
@@ -1119,13 +1173,13 @@
                     if (parts.length >= 2) {
                         const startSec = parseTimeToSeconds(parts[0]);
                         const endSec = parseTimeToSeconds(parts[1]);
-                        if (currentTime >= startSec && currentTime < endSec) {
+                        if (rowCurrentTime >= startSec && rowCurrentTime < endSec) {
                             return row.id;
                         }
                     }
                 }
                 return null;
-            }, [currentTime, mbmRows]);
+            }, [currentTime, mbmRows, broadcastBaseTime]);
 
             // Auto-scroll tabel MBM agar baris yang sedang tayang selalu terlihat di layar
             useEffect(() => {
@@ -1137,47 +1191,30 @@
                 }
             }, [activeRowId, isPlaying, isAutoScrollMbm]);
 
-            // Hitung Metrik Ringkasan Rating TV (Avg TVR, Peak TVR, Avg Share, Peak Share)
+            // Hitung Metrik Ringkasan Rating TV & Metrik Fleksibel (Avg & Peak)
             const ratingStats = React.useMemo(() => {
-                const validRows = mbmRows.filter(r => r.tvr !== undefined && r.tvr !== null && !isNaN(Number(r.tvr)));
-                if (validRows.length === 0) return null;
-                
-                let sumTvr = 0;
-                let maxTvr = -Infinity;
-                let peakTvrRow = null;
-                let sumShare = 0;
-                let maxShare = -Infinity;
-                let peakShareRow = null;
-                let countShare = 0;
-
-                validRows.forEach(r => {
-                    const tvrVal = Number(r.tvr);
-                    sumTvr += tvrVal;
-                    if (tvrVal > maxTvr) {
-                        maxTvr = tvrVal;
-                        peakTvrRow = r;
-                    }
-                    if (r.share !== undefined && r.share !== null && !isNaN(Number(r.share))) {
-                        const shareVal = Number(r.share);
-                        sumShare += shareVal;
-                        countShare++;
-                        if (shareVal > maxShare) {
-                            maxShare = shareVal;
-                            peakShareRow = r;
-                        }
+                const res = { totalPoints: mbmRows.length };
+                chartMetrics.forEach(m => {
+                    const valid = mbmRows.filter(r => r[m.key] !== undefined && r[m.key] !== null && !isNaN(Number(r[m.key])));
+                    if (valid.length > 0) {
+                        const vals = valid.map(r => Number(r[m.key]));
+                        const sum = vals.reduce((a, b) => a + b, 0);
+                        const max = Math.max(...vals);
+                        const isDec = m.isPercent || max < 100;
+                        res[m.key] = {
+                            avg: (sum / valid.length).toFixed(isDec ? (max < 15 ? 2 : 1) : 0),
+                            peak: max.toFixed(isDec ? (max < 15 ? 2 : 1) : 0)
+                        };
                     }
                 });
 
-                return {
-                    avgTvr: (sumTvr / validRows.length).toFixed(2),
-                    peakTvr: maxTvr > -Infinity ? maxTvr.toFixed(2) : "0.00",
-                    peakTvrTime: peakTvrRow ? peakTvrRow.rentangWaktu : "-",
-                    avgShare: countShare > 0 ? (sumShare / countShare).toFixed(1) : "0.0",
-                    peakShare: maxShare > -Infinity ? maxShare.toFixed(1) : "0.0",
-                    peakShareTime: peakShareRow ? peakShareRow.rentangWaktu : "-",
-                    totalPoints: validRows.length
-                };
-            }, [mbmRows]);
+                // Backwards compatibility untuk kode lama
+                res.avgTvr = res.tvr?.avg || "0.00";
+                res.peakTvr = res.tvr?.peak || "0.00";
+                res.avgShare = res.share?.avg || "0.0";
+                res.peakShare = res.share?.peak || "0.0";
+                return res;
+            }, [mbmRows, chartMetrics]);
 
             // Helper Pendeteksi Emosi & Pacing Konten Siaran (Automated Broadcast Content Classifier)
             const detectRowAnalytics = (row, idx = 0) => {
@@ -1356,55 +1393,172 @@
                 };
             }, [mbmRows]);
 
-            // Parser Cepat untuk Tempel Data Rating Nielsen (Fitur C)
+            // Parser Fleksibel untuk Tempel Data Rating & Performa (Attachment 3)
+            // Mendukung: TVR, Share, Reach, Unit, atau hanya 1 kolom data numerik saja
             const parseAndApplyRatingData = (text) => {
                 if (!text || !text.trim()) {
                     notify("Harap tempelkan data teks rating terlebih dahulu.");
                     return;
                 }
 
-                const lines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-                if (lines.length === 0) return;
+                const rawLines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+                if (rawLines.length === 0) return;
+
+                const splitLine = (l) => {
+                    if (l.includes('\t')) return l.split('\t').map(t => t.trim()).filter(Boolean);
+                    if (l.includes(';')) return l.split(';').map(t => t.trim()).filter(Boolean);
+                    if (l.includes(',')) return l.split(',').map(t => t.trim()).filter(Boolean);
+                    return l.split(/\s{2,}|\t/).map(t => t.trim()).filter(Boolean);
+                };
+
+                const firstTokens = splitLine(rawLines[0]);
+                // Deteksi apakah baris 0 adalah Header (Judul Kolom)
+                let isHeader = false;
+                if (firstTokens.length > 0) {
+                    const hasHeaderWord = firstTokens.some(t => {
+                        const low = t.toLowerCase();
+                        return low.includes('waktu') || low.includes('time') || low.includes('menit') ||
+                               low.includes('tvr') || low.includes('share') || low.includes('reach') ||
+                               low.includes('rating') || low.includes('unit') || low.includes('segmen') ||
+                               low.includes('iklan') || low.includes('audiens') || low.includes('view') ||
+                               low.includes('impression');
+                    });
+                    const allNonNumeric = firstTokens.every(t => isNaN(Number(t.replace('%', ''))));
+                    if (hasHeaderWord || (allNonNumeric && rawLines.length > 1)) {
+                        isHeader = true;
+                    }
+                }
+
+                let dataLines = rawLines;
+                let colHeaders = [];
+                if (isHeader) {
+                    colHeaders = firstTokens.map(h => h.replace(/[#()]/g, '').trim());
+                    dataLines = rawLines.slice(1);
+                }
+
+                if (dataLines.length === 0) {
+                    notify("Tidak ditemukan data angka pada teks yang ditempel.");
+                    return;
+                }
+
+                // Analisis kolom dari baris-baris data
+                const firstDataTokens = splitLine(dataLines[0]);
+                const colTypes = [];
+                let numericColIndex = 0;
+
+                for (let c = 0; c < firstDataTokens.length; c++) {
+                    const headerName = colHeaders[c] || "";
+                    const lowHeader = headerName.toLowerCase();
+                    const sampleToken = firstDataTokens[c];
+
+                    if (lowHeader.includes('waktu') || lowHeader.includes('time') || lowHeader.includes('menit') ||
+                        (/^\d{1,2}:\d{2}/.test(sampleToken) || (sampleToken.includes('-') && /\d/.test(sampleToken)))) {
+                        colTypes.push({ type: 'time', key: 'rentangWaktu' });
+                    } else if (lowHeader.includes('unit') || lowHeader.includes('segmen') || lowHeader.includes('iklan') || lowHeader.includes('kategori')) {
+                        colTypes.push({ type: 'unit', key: 'unit' });
+                    } else {
+                        const sampleNum = Number(sampleToken.replace('%', '').replace(',', '.'));
+                        if (!isNaN(sampleNum)) {
+                            numericColIndex++;
+                            let metricKey = "";
+                            let metricLabel = headerName || "";
+
+                            if (lowHeader.includes('reach')) {
+                                metricKey = 'reach';
+                                metricLabel = metricLabel || 'Reach';
+                            } else if (lowHeader.includes('share')) {
+                                metricKey = 'share';
+                                metricLabel = metricLabel || 'Share (%)';
+                            } else if (lowHeader.includes('tvr') || lowHeader.includes('rating')) {
+                                metricKey = 'tvr';
+                                metricLabel = metricLabel || 'TVR (Rating)';
+                            } else if (headerName) {
+                                metricKey = headerName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15);
+                            } else {
+                                if (numericColIndex === 1) {
+                                    metricKey = 'tvr';
+                                    metricLabel = 'TVR (Rating)';
+                                } else if (numericColIndex === 2) {
+                                    metricKey = 'share';
+                                    metricLabel = 'Share (%)';
+                                } else if (numericColIndex === 3) {
+                                    metricKey = 'reach';
+                                    metricLabel = 'Reach';
+                                } else {
+                                    metricKey = `metric_${numericColIndex}`;
+                                    metricLabel = `Data #${numericColIndex}`;
+                                }
+                            }
+                            colTypes.push({ type: 'metric', key: metricKey, label: metricLabel });
+                        } else {
+                            colTypes.push({ type: 'unit', key: 'unit' });
+                        }
+                    }
+                }
+
+                // Susun daftar metric baru untuk chartMetrics
+                const palette = ['#ccff00', '#38bdf8', '#c084fc', '#f59e0b', '#34d399', '#f43f5e'];
+                const detectedMetrics = [];
+                colTypes.forEach((col) => {
+                    if (col.type === 'metric') {
+                        if (!detectedMetrics.some(m => m.key === col.key)) {
+                            const isShare = col.key === 'share' || col.label.toLowerCase().includes('share') || col.label.includes('%');
+                            const color = col.key === 'tvr' ? '#ccff00' : (col.key === 'share' ? '#38bdf8' : (col.key === 'reach' ? '#c084fc' : palette[detectedMetrics.length % palette.length]));
+                            detectedMetrics.push({
+                                key: col.key,
+                                label: col.label,
+                                color: color,
+                                active: true,
+                                isPercent: isShare
+                            });
+                        }
+                    }
+                });
+
+                if (detectedMetrics.length > 0) {
+                    setChartMetrics(detectedMetrics);
+                    try { localStorage.setItem('mbm_chart_metrics_v2', JSON.stringify(detectedMetrics)); } catch(e) {}
+                }
 
                 let appliedCount = 0;
                 const newRows = [...mbmRows];
 
-                lines.forEach((line, lineIdx) => {
-                    let tokens = line.split('\t').map(t => t.trim()).filter(Boolean);
-                    if (tokens.length <= 1) {
-                        tokens = line.split(/,\s*/).map(t => t.trim()).filter(Boolean);
-                    }
-                    if (tokens.length <= 1) {
-                        tokens = line.split(/\s{2,}/).map(t => t.trim()).filter(Boolean);
-                    }
+                dataLines.forEach((line, lineIdx) => {
+                    const tokens = splitLine(line);
+                    let rowTime = null;
+                    let rowUnit = null;
+                    const rowMetricVals = {};
 
-                    let timeVal = null;
-                    let tvrVal = null;
-                    let shareVal = null;
-                    let unitVal = null;
-
-                    tokens.forEach(tok => {
-                        if (/^\d{1,2}:\d{2}/.test(tok) || (tok.includes('-') && /\d/.test(tok))) {
-                            timeVal = tok;
-                        } else if (!isNaN(Number(tok.replace('%', '')))) {
-                            const num = Number(tok.replace('%', ''));
-                            if (tvrVal === null) {
-                                tvrVal = num;
-                            } else if (shareVal === null) {
-                                shareVal = num;
+                    tokens.forEach((tok, tokIdx) => {
+                        const colDef = colTypes[tokIdx];
+                        if (colDef) {
+                            if (colDef.type === 'time') {
+                                rowTime = tok;
+                            } else if (colDef.type === 'unit') {
+                                rowUnit = tok;
+                            } else if (colDef.type === 'metric') {
+                                const num = Number(tok.replace('%', '').replace(',', '.'));
+                                if (!isNaN(num)) {
+                                    rowMetricVals[colDef.key] = num;
+                                }
                             }
                         } else {
-                            unitVal = tok;
+                            const num = Number(tok.replace('%', '').replace(',', '.'));
+                            if (!isNaN(num)) {
+                                if (rowMetricVals.tvr === undefined) rowMetricVals.tvr = num;
+                                else if (rowMetricVals.share === undefined) rowMetricVals.share = num;
+                            } else if (!rowUnit) {
+                                rowUnit = tok;
+                            }
                         }
                     });
 
                     if (lineIdx < newRows.length) {
                         newRows[lineIdx] = {
                             ...newRows[lineIdx],
-                            ...(timeVal ? { rentangWaktu: timeVal } : {}),
-                            ...(tvrVal !== null ? { tvr: tvrVal } : {}),
-                            ...(shareVal !== null ? { share: shareVal } : {}),
-                            ...(unitVal ? { unit: unitVal } : {})
+                            ...(rowTime ? { rentangWaktu: rowTime } : {}),
+                            ...(rowUnit ? { unit: rowUnit } : {}),
+                            ...rowMetricVals
                         };
                         appliedCount++;
                     } else {
@@ -1412,22 +1566,22 @@
                         const lastEnd = (lineIdx + 1) * (intervalMinutes * 60);
                         newRows.push({
                             id: Date.now() + lineIdx,
-                            rentangWaktu: timeVal || `${formatTime(lastStart)} - ${formatTime(lastEnd)}`,
+                            rentangWaktu: rowTime || `${formatTime(lastStart)} - ${formatTime(lastEnd)}`,
                             deskripsi: `Segmen tayangan menit ke-${lineIdx + 1}`,
-                            tvr: tvrVal !== null ? tvrVal : 2.5,
-                            share: shareVal !== null ? shareVal : 13.0,
-                            unit: unitVal || "Segmen"
+                            unit: rowUnit || "Segmen",
+                            ...rowMetricVals
                         });
                         appliedCount++;
                     }
                 });
 
                 setMbmRows(newRows);
-                localStorage.setItem('mbm_rows_v3', JSON.stringify(newRows));
+                try { localStorage.setItem('mbm_rows_v3', JSON.stringify(newRows)); } catch(e) {}
                 setShowRatingChart(true);
                 setShowRatingModal(false);
                 setPastedRatingText("");
-                notify(`Berhasil menerapkan data performa rating pada ${appliedCount} menit MBM!`);
+                const metricNames = detectedMetrics.map(m => m.label).join(', ');
+                notify(`Berhasil menerapkan data (${metricNames || 'Rating'}) pada ${appliedCount} menit MBM!`);
             };
 
             // ==========================================
@@ -1738,9 +1892,10 @@
             const [zIndices, setZIndices] = useState({ preview: 10, tools: 10, mbm: 10 });
             const [maxZ, setMaxZ] = useState(30);
 
+            // Bawa box ke depan saat diklik, tetapi dibatasi agar TIDAK PERNAH menutupi Navbar Atas & Switcher Bawah (Attachment 1)
             const bringToFront = (key) => {
                 setMaxZ(prev => {
-                    const nextZ = prev + 1;
+                    const nextZ = Math.min(45, prev + 1);
                     setZIndices(p => ({ ...p, [key]: nextZ }));
                     return nextZ;
                 });
@@ -2320,9 +2475,10 @@
 
             function parseTimeToSeconds(str) {
                 if (!str) return 0;
-                const parts = str.trim().split(':').map(Number);
-                if (parts.length === 2) return parts[0] * 60 + parts[1];
-                if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+                const cleanStr = String(str).trim().replace(/\./g, ':');
+                const parts = cleanStr.split(':').map(Number);
+                if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) return parts[0] * 60 + parts[1];
+                if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) return parts[0] * 3600 + parts[1] * 60 + parts[2];
                 return 0;
             }
 
@@ -2431,26 +2587,63 @@
             }, [youtubeId, isPlaying, videoDuration]);
 
             // Unified Seek Function (Bekerja untuk Video Lokal, Direct MP4, dan YouTube)
-            const seekVideo = (timeSec) => {
-                if (youtubeId) {
-                    seekYouTube(timeSec);
-                    notify("Melompat ke menit " + formatTime(timeSec));
-                } else if (videoRef && videoRef.current) {
-                    videoRef.current.currentTime = timeSec;
-                    setCurrentTime(timeSec);
-                    notify("Melompat ke menit " + formatTime(timeSec));
+            // Mengatasi error Attachment 2: konversi otomatis waktu siaran (14:00:00 dll) ke detik video agar tidak freeze!
+            const seekVideo = (timeSec, startPlaying = true) => {
+                if (isNaN(timeSec) || timeSec === null || timeSec === undefined) return;
+
+                const vEl = videoRef.current;
+                const vDur = (vEl && vEl.duration && !isNaN(vEl.duration)) ? vEl.duration : (videoDuration || 0);
+
+                let actualSec = timeSec;
+                // Jika timeSec adalah waktu siaran (misal 14:00:00 = 50400s)
+                if (broadcastBaseTime > 0 && timeSec >= broadcastBaseTime) {
+                    actualSec = timeSec - broadcastBaseTime;
+                } else if (vDur > 0 && timeSec > vDur && broadcastBaseTime === 0) {
+                    const firstRowSec = mbmRows?.[0]?.rentangWaktu ? parseTimeToSeconds(mbmRows[0].rentangWaktu.split('-')[0]) : 0;
+                    if (firstRowSec > 0 && timeSec >= firstRowSec) {
+                        actualSec = timeSec - firstRowSec;
+                    }
+                }
+
+                // Pengamanan batas durasi video (Clamping) agar tidak melewati akhir video yang memicu freeze
+                if (vDur > 0) {
+                    actualSec = Math.max(0, Math.min(actualSec, Math.max(0, vDur - 0.2)));
                 } else {
-                    setCurrentTime(timeSec);
-                    notify("Waktu: " + formatTime(timeSec));
+                    actualSec = Math.max(0, actualSec);
+                }
+
+                if (youtubeId) {
+                    seekYouTube(actualSec);
+                    notify("Melompat ke menit " + formatTime(actualSec));
+                } else if (vEl) {
+                    try {
+                        vEl.currentTime = actualSec;
+                        setCurrentTime(actualSec);
+                        if (startPlaying) {
+                            const playPromise = vEl.play();
+                            if (playPromise !== undefined) {
+                                playPromise.then(() => {
+                                    setIsPlaying(true);
+                                }).catch(() => {});
+                            }
+                        }
+                        notify("Melompat ke menit " + formatTime(actualSec));
+                    } catch (e) {
+                        console.error("Seek error:", e);
+                    }
+                } else {
+                    setCurrentTime(actualSec);
+                    notify("Waktu: " + formatTime(actualSec));
                 }
             };
 
             // Seek video saat tombol play pada baris MBM diklik
             const seekToRow = (rentangWaktu) => {
+                if (!rentangWaktu) return;
                 const parts = rentangWaktu.split('-');
                 if (parts.length > 0) {
                     const startSec = parseTimeToSeconds(parts[0]);
-                    seekVideo(startSec);
+                    seekVideo(startSec, true);
                 }
             };
 
@@ -3911,6 +4104,22 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             placeholder="14.5"
                                         />
                                     </div>
+                                    {/* Input Fleksibel untuk Metrik Lain (misal: Reach) */}
+                                    {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share').map(m => (
+                                        <div key={m.key}>
+                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
+                                                {m.label}
+                                            </label>
+                                            <input 
+                                                type="number"
+                                                step="0.1"
+                                                value={editingRow[m.key] !== undefined && editingRow[m.key] !== null ? editingRow[m.key] : ""}
+                                                onChange={(e) => setEditingRow({ ...editingRow, [m.key]: e.target.value })}
+                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
+                                                placeholder="0.0"
+                                            />
+                                        </div>
+                                    ))}
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-2">
@@ -3976,6 +4185,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             if (row.id === editingRow.id) {
                                                 return {
                                                     ...row,
+                                                    ...editingRow,
                                                     rentangWaktu: editingRow.rentangWaktu,
                                                     deskripsi: editingRow.deskripsi,
                                                     tvr: editingRow.tvr !== "" && editingRow.tvr !== null && editingRow.tvr !== undefined ? Number(editingRow.tvr) : null,
@@ -4000,547 +4210,6 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                 );
             };
 
-            // [UNUSED_FIRST_COPY_START]
-            const unusedFirstChart = (isOverlay = false) => {
-                if (!showRatingChart || !mbmRows || mbmRows.length === 0) return null;
-
-                const chartWidth = 1100;
-                const chartHeight = isChartCompact ? 32 : 92;
-                const padL = 36;
-                const padR = 36;
-                const padT = 16;
-                const padB = 20;
-                const plotW = chartWidth - padL - padR;
-                const plotH = chartHeight - padT - padB;
-
-                const maxTvrVal = Math.max(4.0, ...mbmRows.map(r => Number(r.tvr) || 0)) * 1.15;
-                const maxShareVal = Math.max(15.0, ...mbmRows.map(r => Number(r.share) || 0)) * 1.15;
-
-                const points = mbmRows.map((r, i) => {
-                    const parts = (r.rentangWaktu || "").split('-');
-                    const sStart = parts.length > 0 ? parseTimeToSeconds(parts[0]) : i * 60;
-                    const sEnd = parts.length > 1 ? parseTimeToSeconds(parts[1]) : (sStart + 60);
-                    const sMid = (sStart + sEnd) / 2;
-                    const x = padL + (i / Math.max(1, mbmRows.length - 1)) * plotW;
-
-                    const tvrNum = Number(r.tvr) || 0;
-                    const shareNum = Number(r.share) || 0;
-                    const yTvr = (padT + plotH) - (tvrNum / maxTvrVal) * plotH;
-                    const yShare = (padT + plotH) - (shareNum / maxShareVal) * plotH;
-
-                    const prevTvr = i > 0 ? (Number(mbmRows[i - 1].tvr) || 0) : null;
-                    let delta = null;
-                    let pct = null;
-                    if (prevTvr !== null && prevTvr > 0) {
-                        delta = tvrNum - prevTvr;
-                        pct = (delta / prevTvr) * 100;
-                    }
-
-                    return { ...r, sStart, sEnd, sMid, x, yTvr, yShare, tvrNum, shareNum, delta, pct };
-                });
-
-                const activeIdx = points.findIndex(p => currentTime >= p.sStart && currentTime < p.sEnd);
-                const activePoint = activeIdx !== -1 ? points[activeIdx] : points[0];
-
-                let scrubberX = padL;
-                if (activeIdx !== -1) {
-                    const p = points[activeIdx];
-                    const segDur = Math.max(1, p.sEnd - p.sStart);
-                    const segProg = Math.max(0, Math.min(1, (currentTime - p.sStart) / segDur));
-                    const nextX = activeIdx < points.length - 1 ? points[activeIdx + 1].x : (padL + plotW);
-                    scrubberX = p.x + segProg * (nextX - p.x);
-                } else if (points.length > 0) {
-                    const totalDur = Math.max(videoDuration || 0, points[points.length - 1].sEnd || 480);
-                    scrubberX = padL + Math.min(plotW, Math.max(0, (currentTime / totalDur) * plotW));
-                }
-
-                const tvrLinePath = getSmoothSvgPath(points, 'yTvr');
-                const shareLinePath = getSmoothSvgPath(points, 'yShare');
-                const tvrAreaPath = getSmoothAreaPath(points, 'yTvr', padT + plotH);
-                const shareAreaPath = getSmoothAreaPath(points, 'yShare', padT + plotH);
-
-                return (
-                    <div 
-                        className={
-                            isOverlay
-                                ? ("absolute left-2 sm:left-4 right-2 sm:right-4 z-30 pointer-events-auto transition-all duration-200 select-none " + (isVideoZoomed ? "bottom-14 sm:bottom-16" : "bottom-12 sm:bottom-14"))
-                                : "w-full bg-slate-950 text-white rounded-3xl border border-slate-800 p-3 sm:p-4 shadow-xl transition-all duration-200 select-none mt-3"
-                        }
-                    >
-                        <div className={
-                            isOverlay
-                                ? ("border border-white/15 bg-slate-950/75 sm:bg-slate-950/80 backdrop-blur-md opacity-85 hover:opacity-100 hover:bg-slate-950/95 hover:border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl text-white transition-all overflow-hidden group/chart " + (isChartCompact ? "px-2.5 py-1.5" : "p-2 sm:p-2.5"))
-                                : ("rounded-2xl text-white overflow-hidden " + (isChartCompact ? "p-1" : "space-y-2"))
-                        }>
-                            {/* Header Bar Ringkas */}
-                            <div className={"flex items-center justify-between gap-2 transition-all " + (isChartCompact ? "" : "pb-1.5 mb-1 border-b border-white/10")}>
-                                <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0 flex-wrap">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowChartTvr(!showChartTvr)}
-                                        className={"flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-lg transition-all " + (showChartTvr ? "bg-neon/15 text-neon border border-neon/40 shadow-sm" : "opacity-40 text-slate-400 border border-transparent")}
-                                        title="Klik untuk tampilkan/sembunyikan data TVR (Rating Poin)"
-                                    >
-                                        <span className="w-2.5 h-2.5 rounded-full bg-neon border border-black shadow-[0_0_6px_#ccff00]"></span>
-                                        <span>TVR (Rating)</span>
-                                    </button>
-
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowChartShare(!showChartShare)}
-                                        className={"flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-lg transition-all " + (showChartShare ? "bg-sky-500/15 text-sky-300 border border-sky-400/40 shadow-sm" : "opacity-40 text-slate-400 border border-transparent")}
-                                        title="Klik untuk tampilkan/sembunyikan data Share (%)"
-                                    >
-                                        <span className="w-2.5 h-2.5 rounded-full bg-sky-400 border border-black shadow-[0_0_6px_#38bdf8]"></span>
-                                        <span>Share (%)</span>
-                                    </button>
-
-                                    {!isChartCompact && (
-                                        <button 
-                                            type="button"
-                                            onClick={() => setShowChartDelta(!showChartDelta)}
-                                            className={"flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-lg transition-all " + (showChartDelta ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/30" : "opacity-40 text-slate-400 border border-transparent")}
-                                            title="Tampilkan / sembunyikan badge perbandingan delta naik-turun"
-                                        >
-                                            <i className="fa-solid fa-arrow-up-right-dots text-[9px]"></i>
-                                            <span className="hidden sm:inline">Delta (+/-)</span>
-                                        </button>
-                                    )}
-
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowRatingModal(true)}
-                                        className="text-[10px] font-bold text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15 px-2 py-0.5 rounded-lg transition-all flex items-center gap-1"
-                                        title="Impor / Tempel Data Rating Baru"
-                                    >
-                                        <i className="fa-solid fa-file-import text-[9px] text-neon"></i>
-                                        <span className="hidden sm:inline">{t("pasteRating")}</span>
-                                    </button>
-
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowAnalyticsDrawer(!showAnalyticsDrawer)}
-                                        className={"text-[10px] font-bold px-2 py-0.5 rounded-lg transition-all flex items-center gap-1.5 " + (showAnalyticsDrawer ? "bg-neon text-obsidian font-black shadow-[0_0_12px_rgba(204,255,0,0.4)] ring-1 ring-neon-dark" : "text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 border border-white/15")}
-                                        title="Buka / Tutup Panel Analisis Statistik, Bentuk Kurva & Emosi Konten"
-                                    >
-                                        <i className="fa-solid fa-chart-pie text-[9px]"></i>
-                                        <span className="hidden sm:inline">Analisis Statistik</span>
-                                    </button>
-                                </div>
-
-                                {/* Area Tengah: Ketika grafik dilipat (Compact Mode) */}
-                                {isChartCompact && (
-                                    <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 px-2 min-w-0 overflow-x-auto no-scrollbar py-0.5">
-                                        <div className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-white/10 border border-white/20 text-[11px] font-bold text-white shadow-inner">
-                                            <span className="w-2 h-2 rounded-full bg-neon animate-pulse shadow-[0_0_8px_#ccff00]"></span>
-                                            <span className="text-white/60 text-[10px]">{t("activeMinute")} ({formatTime(currentTime)}):</span>
-                                            {showChartTvr && (
-                                                <span className="text-neon font-black font-mono">
-                                                    TVR {activePoint?.tvrNum !== undefined ? activePoint.tvrNum.toFixed(1) : '-'}
-                                                </span>
-                                            )}
-                                            {showChartTvr && showChartShare && <span className="text-white/30">•</span>}
-                                            {showChartShare && (
-                                                <span className="text-sky-300 font-black font-mono">
-                                                    Share {activePoint?.shareNum !== undefined ? activePoint.shareNum + '%' : '-'}
-                                                </span>
-                                            )}
-                                            {activePoint?.unit && (
-                                                <span className="text-[9px] text-white/50 px-1 py-0.2 bg-white/10 rounded ml-1 border border-white/10">
-                                                    {activePoint.unit}
-                                                </span>
-                                            )}
-                                        </div>
-
-                                        <div className="h-4 w-px bg-white/15 flex-shrink-0 hidden md:block"></div>
-
-                                        <div className="flex items-center gap-1 sm:gap-1.5 flex-nowrap overflow-x-auto no-scrollbar py-0.5">
-                                            {points.map((p, idx) => {
-                                                const isActive = activeIdx === idx;
-                                                return (
-                                                    <button
-                                                        key={p.id || idx}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            seekVideo(p.sStart);
-                                                        }}
-                                                        className={"flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-mono transition-all " + (
-                                                            isActive 
-                                                                ? "bg-neon/20 border border-neon text-white font-black shadow-[0_0_10px_rgba(204,255,0,0.35)] scale-105" 
-                                                                : "bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white"
-                                                        )}
-                                                        title={`Lompat ke ${p.rentangWaktu || ('Menit ' + (idx + 1))}\nTVR: ${p.tvrNum.toFixed(1)}\nShare: ${p.shareNum}%\nDeskripsi: ${p.deskripsi || '-'}`}
-                                                    >
-                                                        <span className="text-white/40 text-[9px] font-sans">M{idx + 1}</span>
-                                                        {showChartTvr && (
-                                                            <span className={isActive ? "text-neon font-black" : "text-neon/90 font-bold"}>
-                                                                {p.tvrNum.toFixed(1)}
-                                                            </span>
-                                                        )}
-                                                        {showChartTvr && showChartShare && <span className="text-white/20">/</span>}
-                                                        {showChartShare && (
-                                                            <span className={isActive ? "text-sky-300 font-black" : "text-sky-400 font-bold"}>
-                                                                {p.shareNum}%
-                                                            </span>
-                                                        )}
-                                                    </button>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-                                    {ratingStats && (
-                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                            {showChartTvr && (
-                                                <div className="bg-neon/15 border border-neon/40 text-neon text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1.5">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-neon animate-pulse"></span>
-                                                    <span>TVR: Avg {ratingStats.avgTvr}</span>
-                                                    <span className="text-white/30">•</span>
-                                                    <span>Peak {ratingStats.peakTvr}</span>
-                                                </div>
-                                            )}
-                                            {showChartShare && (
-                                                <div className="bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1.5">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
-                                                    <span>Share: Avg {ratingStats.avgShare}%</span>
-                                                    <span className="text-white/30">•</span>
-                                                    <span>Peak {ratingStats.peakShare}%</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-
-
-
-                                    <button 
-                                        type="button"
-                                        onClick={() => setIsChartCompact(!isChartCompact)}
-                                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white flex items-center justify-center text-[10px] transition-all border border-white/10"
-                                        title={isChartCompact ? "Buka / perbesar grafik kurva" : "Lipat grafik (tampilkan strip angka performa)"}
-                                    >
-                                        <i className={"fa-solid " + (isChartCompact ? "fa-up-right-and-down-left-from-center" : "fa-down-left-and-up-right-to-center") + " text-[8px]"}></i>
-                                    </button>
-
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowRatingChart(false)}
-                                        className="w-5 h-5 rounded-md bg-white/10 hover:bg-red-600 text-slate-300 hover:text-white flex items-center justify-center text-[10px] transition-all border border-white/10"
-                                        title="Tutup grafik rating"
-                                    >
-                                        <i className="fa-solid fa-xmark text-[10px]"></i>
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Drawer Analisis Statistik */}
-                            {showAnalyticsDrawer && statisticalAnalytics && (
-                                <div className="mb-2 p-2.5 sm:p-3 rounded-2xl bg-slate-900/95 border border-white/15 backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-                                    <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
-                                        <div className="flex items-center gap-2">
-                                            <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-neon/15 text-neon border border-neon/30 text-xs">
-                                                <i className="fa-solid fa-chart-line"></i>
-                                            </span>
-                                            <div>
-                                                <h4 className="text-xs font-black text-white tracking-wide flex items-center gap-2">
-                                                    Analisis Statistik & Tipologi Bentuk Kurva Penyiaran
-                                                    <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-neon/15 text-neon border border-neon/30 font-mono">
-                                                        N = {statisticalAnalytics.N} Menit
-                                                    </span>
-                                                </h4>
-                                                <p className="text-[10px] text-slate-400">Hubungan regresi linear, volatilitas audiens, dinamika emosi cerita, dan retensi jeda komersial.</p>
-                                            </div>
-                                        </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowAnalyticsDrawer(false)}
-                                            className="w-5 h-5 rounded-md bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center text-xs"
-                                            title="Tutup panel analisis"
-                                        >
-                                            <i className="fa-solid fa-xmark"></i>
-                                        </button>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                                        {/* Card 1: Tipologi Bentuk Kurva & Regresi */}
-                                        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
-                                            <div>
-                                                <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipologi Kurva</span>
-                                                    <span className={"text-[9px] font-black px-2 py-0.5 rounded-full border " + (statisticalAnalytics.slopeBeta >= 0.035 ? "bg-neon/20 text-neon border-neon/40" : statisticalAnalytics.slopeBeta <= -0.035 ? "bg-rose-500/20 text-rose-300 border-rose-400/40" : "bg-sky-500/20 text-sky-300 border-sky-400/40")}>
-                                                        {statisticalAnalytics.curveTypology.badge}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <i className={"fa-solid " + statisticalAnalytics.curveTypology.icon + " text-base " + statisticalAnalytics.curveTypology.color}></i>
-                                                    <span className="text-xs font-black text-white">{statisticalAnalytics.curveTypology.name}</span>
-                                                </div>
-                                                <p className="text-[10px] text-slate-300 leading-relaxed mb-2">
-                                                    {statisticalAnalytics.curveTypology.desc}
-                                                </p>
-                                            </div>
-                                            <div className="pt-2 border-t border-white/10 grid grid-cols-3 gap-1 text-center font-mono">
-                                                <div className="bg-black/30 p-1 rounded border border-white/5">
-                                                    <div className="text-[9px] text-slate-400 font-sans">Slope (β)</div>
-                                                    <div className={"text-[11px] font-black " + (statisticalAnalytics.slopeBeta >= 0 ? "text-neon" : "text-rose-400")}>
-                                                        {statisticalAnalytics.slopeBeta > 0 ? "+" : ""}{statisticalAnalytics.slopeBeta}
-                                                    </div>
-                                                </div>
-                                                <div className="bg-black/30 p-1 rounded border border-white/5">
-                                                    <div className="text-[9px] text-slate-400 font-sans">Korelasi (r)</div>
-                                                    <div className="text-[11px] font-black text-sky-300">{statisticalAnalytics.pearsonR}</div>
-                                                </div>
-                                                <div className="bg-black/30 p-1 rounded border border-white/5">
-                                                    <div className="text-[9px] text-slate-400 font-sans">Volatilitas (σ)</div>
-                                                    <div className="text-[11px] font-black text-amber-300">±{statisticalAnalytics.stdDev}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Card 2: Korelasi Emosi Cerita vs Performa Rating */}
-                                        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
-                                            <div>
-                                                <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Korelasi Emosi vs Rating</span>
-                                                    {statisticalAnalytics.topEmotion && (
-                                                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                                            Peak: {statisticalAnalytics.topEmotion.icon} {statisticalAnalytics.topEmotion.key}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="space-y-1 mb-2">
-                                                    {statisticalAnalytics.emotionStats.map(em => (
-                                                        <div key={em.key} className="flex items-center justify-between text-[10px] px-1.5 py-0.5 rounded bg-black/20 hover:bg-black/40 transition-colors">
-                                                            <div className="flex items-center gap-1.5">
-                                                                <span className="text-xs">{em.icon}</span>
-                                                                <span className="text-slate-300 font-medium">{em.key}</span>
-                                                                <span className="text-white/40 text-[9px]">({em.count}m • {em.pctOfTotal}%)</span>
-                                                            </div>
-                                                            <div className="flex items-center gap-1.5 font-mono">
-                                                                <span className="text-[9px] text-slate-400">Avg TVR:</span>
-                                                                <span className="font-bold text-neon">{em.avgTvr}</span>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div className="text-[9px] text-slate-400 pt-1.5 border-t border-white/10 flex items-center justify-between">
-                                                <span>Target Hook: Konflik & Tegang</span>
-                                                <span className="text-slate-300 font-mono">Mean: {statisticalAnalytics.meanTvr} TVR</span>
-                                            </div>
-                                        </div>
-
-                                        {/* Card 3: Dinamika Pacing & Retensi Jeda Iklan */}
-                                        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
-                                            <div>
-                                                <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pacing & Retensi Iklan</span>
-                                                    <span className={"text-[9px] font-black px-2 py-0.5 rounded-full border " + (statisticalAnalytics.bounceBackPct >= 70 ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : "bg-amber-500/20 text-amber-300 border-amber-500/30")}>
-                                                        Retensi {statisticalAnalytics.bounceBackPct}%
-                                                    </span>
-                                                </div>
-                                                <div className="grid grid-cols-2 gap-1.5 mb-2">
-                                                    <div className="p-1.5 rounded bg-black/30 border border-white/5">
-                                                        <div className="text-[9px] text-slate-400">TVR Rata-rata Program</div>
-                                                        <div className="text-xs font-black text-neon font-mono">{statisticalAnalytics.avgProgTvr}</div>
-                                                    </div>
-                                                    <div className="p-1.5 rounded bg-black/30 border border-white/5">
-                                                        <div className="text-[9px] text-slate-400">TVR Rata-rata Iklan</div>
-                                                        <div className="text-xs font-black text-sky-300 font-mono">{statisticalAnalytics.avgAdTvr}</div>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-1.5 mb-2">
-                                                    {statisticalAnalytics.pacingStats.map(pc => (
-                                                        <div key={pc.key} className="flex-1 p-1 rounded bg-black/20 text-center border border-white/5">
-                                                            <div className="text-[9px] text-slate-400">{pc.icon} {pc.key}</div>
-                                                            <div className="text-[10px] font-bold text-white font-mono">{pc.count}m <span className="text-white/40 text-[8px]">({pc.pctOfTotal}%)</span></div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            {statisticalAnalytics.draggingRisks && statisticalAnalytics.draggingRisks.length > 0 ? (
-                                                <div className="p-1.5 rounded bg-rose-500/15 border border-rose-500/30 text-[9px] text-rose-200 flex items-center gap-1.5">
-                                                    <i className="fa-solid fa-triangle-exclamation text-rose-400"></i>
-                                                    <span>Terdeteksi {statisticalAnalytics.draggingRisks.length} segmen lambat yang menurunkan TVR tajam (&gt; -0.3). Evaluasi durasi.</span>
-                                                </div>
-                                            ) : (
-                                                <div className="p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] text-emerald-300 flex items-center gap-1.5">
-                                                    <i className="fa-solid fa-circle-check text-emerald-400"></i>
-                                                    <span>Ritme penayangan (pacing) sehat, tidak ada pelepasan audiens abnormal.</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Chart Canvas Area (Tinggi 1/2 Lebih Pendek, Ultra Wide) */}
-                            {!isChartCompact && (
-                                <div className="relative">
-                                    <svg 
-                                        viewBox={"0 0 " + chartWidth + " " + chartHeight}
-                                        className="w-full h-auto cursor-crosshair overflow-visible"
-                                        onClick={(e) => {
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            const clickX = e.clientX - rect.left;
-                                            const scaleX = chartWidth / rect.width;
-                                            const svgX = clickX * scaleX;
-                                            const normX = Math.max(0, Math.min(1, (svgX - padL) / plotW));
-                                            const targetIdx = Math.round(normX * (points.length - 1));
-                                            const targetTime = points[targetIdx]?.sStart || 0;
-                                            if (videoRef && videoRef.current) {
-                                                videoRef.current.currentTime = targetTime;
-                                                setCurrentTime(targetTime);
-                                                notify("Melompat ke menit " + formatTime(targetTime));
-                                            }
-                                        }}
-                                    >
-                                        <defs>
-                                            <linearGradient id="transLimeArea" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="0%" stopColor="#ccff00" stopOpacity="0.38" />
-                                                <stop offset="100%" stopColor="#ccff00" stopOpacity="0.03" />
-                                            </linearGradient>
-                                            <linearGradient id="transDarkArea" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="0%" stopColor="#38bdf8" stopOpacity="0.28" />
-                                                <stop offset="100%" stopColor="#38bdf8" stopOpacity="0.02" />
-                                            </linearGradient>
-                                            <filter id="neonGlowWide" x="-20%" y="-20%" width="140%" height="140%">
-                                                <feDropShadow dx="0" dy="0" stdDeviation="2" floodColor="#ccff00" floodOpacity="0.5" />
-                                            </filter>
-                                        </defs>
-
-                                        {/* Grid Horizontal & Ticks Sumbu Y */}
-                                        {[0, 0.5, 1].map((pct, idx) => {
-                                            const y = padT + plotH * pct;
-                                            const tvrVal = ((1 - pct) * maxTvrVal).toFixed(1);
-                                            const shareVal = Math.round((1 - pct) * maxShareVal);
-                                            return (
-                                                <g key={idx}>
-                                                    <line x1={padL} y1={y} x2={padL + plotW} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="3,3" />
-                                                    <text x={padL - 5} y={y + 2.5} fill="#94a3b8" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="end">{tvrVal}</text>
-                                                    {showChartShare && (
-                                                        <text x={padL + plotW + 5} y={y + 2.5} fill="#38bdf8" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="start">{shareVal}%</text>
-                                                    )}
-                                                </g>
-                                            );
-                                        })}
-
-                                        {/* Area Fill Di Bawah Kurva */}
-                                        {showChartShare && shareAreaPath && (
-                                            <path d={shareAreaPath} fill="url(#transDarkArea)" />
-                                        )}
-                                        {showChartTvr && tvrAreaPath && (
-                                            <path d={tvrAreaPath} fill="url(#transLimeArea)" />
-                                        )}
-
-                                        {/* Smooth Bezier Spline Curves */}
-                                        {showChartShare && shareLinePath && (
-                                            <path d={shareLinePath} fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                        )}
-                                        {showChartTvr && tvrLinePath && (
-                                            <path d={tvrLinePath} fill="none" stroke="#ccff00" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" filter="url(#neonGlowWide)" />
-                                        )}
-
-                                        {/* Titik Point, Angka Nilai & Delta Badge */}
-                                        {points.map((p, i) => {
-                                            const showDelta = showChartDelta && p.delta !== null && (points.length <= 18 || i % 2 === 0 || i === activeIdx);
-                                            const isPositive = p.delta >= 0;
-                                            return (
-                                                <g key={i}>
-                                                    {showChartShare && (
-                                                        <circle cx={p.x} cy={p.yShare} r="2.5" fill="#38bdf8" stroke="#090d16" strokeWidth="1" />
-                                                    )}
-
-                                                    {showChartTvr && (
-                                                        <>
-                                                            <circle cx={p.x} cy={p.yTvr} r="3" fill="#ccff00" stroke="#090d16" strokeWidth="1.5" />
-                                                            
-                                                            {/* Angka Data Tebal Di Kurva */}
-                                                            <text x={p.x} y={p.yTvr + 9} fill="#ffffff" fontSize="7.5" fontWeight="800" textAnchor="middle">
-                                                                {p.tvrNum.toFixed(1)}
-                                                            </text>
-
-                                                            {/* Delta Callout Badges Melayang */}
-                                                            {showDelta && (
-                                                                <g transform={"translate(" + p.x + ", " + (p.yTvr - 12) + ")"}>
-                                                                    <rect 
-                                                                        x="-22" 
-                                                                        y="-6.5" 
-                                                                        width="44" 
-                                                                        height="13" 
-                                                                        rx="6" 
-                                                                        fill={isPositive ? "#064e3b" : "#4c0519"} 
-                                                                        stroke={isPositive ? "#10b981" : "#f43f5e"} 
-                                                                        strokeWidth="0.8" 
-                                                                    />
-                                                                    <text 
-                                                                        x="0" 
-                                                                        y="2.5" 
-                                                                        fill={isPositive ? "#6ee7b7" : "#fda4af"} 
-                                                                        fontSize="6.5" 
-                                                                        fontWeight="bold" 
-                                                                        textAnchor="middle"
-                                                                    >
-                                                                        {(isPositive ? "▲ +" : "▼ -") + Math.abs(p.delta).toFixed(1) + " | " + Math.abs(p.pct).toFixed(0) + "%"}
-                                                                    </text>
-                                                                </g>
-                                                            )}
-                                                        </>
-                                                    )}
-
-                                                    {/* Sumbu X Label Miring (-22 Derajat) */}
-                                                    <text 
-                                                        transform={"rotate(-22 " + p.x + " " + (padT + plotH + 13) + ")"} 
-                                                        x={p.x} 
-                                                        y={padT + plotH + 13} 
-                                                        fill="#cbd5e1" 
-                                                        fontSize="7" 
-                                                        fontWeight="600" 
-                                                        textAnchor="end"
-                                                    >
-                                                        {p.rentangWaktu ? p.rentangWaktu.split("-")[0].trim() : (p.unit || `0${i}:00`)}
-                                                    </text>
-                                                </g>
-                                            );
-                                        })}
-
-                                        {/* Indikator Scrubber Playhead Sinkron Detik Video */}
-                                        <g>
-                                            <line 
-                                                x1={scrubberX} 
-                                                y1={padT - 6} 
-                                                x2={scrubberX} 
-                                                y2={padT + plotH + 4} 
-                                                stroke="#ccff00" 
-                                                strokeWidth="1.8" 
-                                                strokeDasharray="3,3" 
-                                            />
-                                            {activePoint && showChartTvr && (
-                                                <circle 
-                                                    cx={scrubberX} 
-                                                    cy={activePoint.yTvr} 
-                                                    r="4.5" 
-                                                    fill="#ccff00" 
-                                                    stroke="#090d16" 
-                                                    strokeWidth="2" 
-                                                />
-                                            )}
-                                            <g transform={"translate(" + Math.max(35, Math.min(chartWidth - 35, scrubberX)) + ", " + (padT - 7) + ")"}>
-                                                <rect x="-24" y="-8" width="48" height="11" rx="3" fill="#0f172a" stroke="#ccff00" strokeWidth="0.8" />
-                                                <text x="0" y="0.5" fill="#ccff00" fontSize="7" fontWeight="bold" fontFamily="monospace" textAnchor="middle">
-                                                    {formatTime(currentTime)}
-                                                </text>
-                                            </g>
-                                        </g>
-                                    </svg>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                );
-            };
-
             // Render Modal Nielsen Rating Data (Dapat tampil baik di mode normal maupun mode fullscreen)
             const renderRatingModal = () => {
                 if (!showRatingModal) return null;
@@ -4559,8 +4228,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                         <i className="fa-solid fa-chart-line"></i>
                                     </div>
                                     <div>
-                                        <h3 className="font-black text-base text-slate-900">Tempel Data Rating Nielsen (TVR, Share, Unit)</h3>
-                                        <p className="text-[11px] text-slate-500 font-medium">Salin langsung kolom dari Excel riset, lalu paste di bawah ini.</p>
+                                        <h3 className="font-black text-base text-slate-900">Tempel Data Rating / Metrik Fleksibel (TVR, Share, Reach, dll)</h3>
+                                        <p className="text-[11px] text-slate-500 font-medium">Salin langsung kolom apa saja dari Excel (1 metrik, 2 metrik, atau multi-metrik), lalu tempel di bawah ini.</p>
                                     </div>
                                 </div>
                                 <button 
@@ -4573,41 +4242,53 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                             </div>
 
                             <div className="space-y-3">
-                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600 text-xs space-y-1">
+                                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600 text-xs space-y-1.5">
                                     <p className="font-bold text-slate-800 flex items-center gap-1.5">
                                         <i className="fa-solid fa-circle-info text-lime-700"></i>
-                                        <span>Format yang Didukung (Bisa langsung Copy & Paste dari Excel):</span>
+                                        <span>Format Fleksibel (Auto-Deteksi Kolom & Header):</span>
                                     </p>
-                                    <p className="font-mono text-[10.5px] text-slate-500 pl-4">
-                                        Kolom 1: Rentang Waktu (opsional)<br />
-                                        Kolom 2: <strong>TVR</strong> (angka rating)<br />
-                                        Kolom 3: <strong>SHARE (%)</strong> (angka pangsa pemirsa)<br />
-                                        Kolom 4: <strong>UNIT</strong> (Segmen tayangan / Iklan)
+                                    <p className="text-[11px] text-slate-600 leading-relaxed pl-4">
+                                        • Anda bebas paste kolom apa saja (misal hanya 1 kolom <strong>Reach</strong>, atau <strong>TVR + Share</strong>, atau nama metrik kustom lainnya).<br />
+                                        • Jika menyertakan baris header (misal: <em>Waktu, Reach, Unit</em>), nama metrik akan otomatis dinamai sesuai header tersebut.<br />
+                                        • Jika hanya input 1 metrik, grafik otomatis hanya menampilkan 1 kurva grafik.
                                     </p>
                                 </div>
 
                                 <div>
-                                    <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center justify-between mb-1.5 flex-wrap gap-1">
                                         <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
                                             Area Tempel Data Teks:
                                         </label>
-                                        <button 
-                                            type="button"
-                                            onClick={() => {
-                                                const sampleText = `00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1\n02:00 - 03:00\t3.1\t16.5\tSegmen 1\n03:00 - 04:00\t1.8\t9.1\tBreak Iklan 1\n04:00 - 05:00\t3.4\t17.8\tSegmen 2\n05:00 - 06:00\t3.7\t18.9\tSegmen 2\n06:00 - 07:00\t3.5\t17.4\tSegmen 2\n07:00 - 08:00\t1.9\t9.5\tBreak Iklan 2\n08:00 - 09:00\t3.6\t18.2\tSegmen 3\n09:00 - 10:00\t3.2\t16.0\tSegmen 3`;
-                                                setPastedRatingText(sampleText);
-                                                notify("Contoh data rating Nielsen dimuat!");
-                                            }}
-                                            className="text-[10px] font-bold text-lime-700 hover:text-lime-900 bg-limePill px-2 py-0.5 rounded-md hover:underline"
-                                        >
-                                            + Gunakan Contoh Data Rating
-                                        </button>
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    const sampleSingle = `Waktu\tReach\n00:00 - 01:00\t14.8\n01:00 - 02:00\t15.2\n02:00 - 03:00\t16.9\n03:00 - 04:00\t9.4\n04:00 - 05:00\t17.5\n05:00 - 06:00\t18.1\n06:00 - 07:00\t17.0\n07:00 - 08:00\t10.2\n08:00 - 09:00\t18.6\n09:00 - 10:00\t16.4`;
+                                                    setPastedRatingText(sampleSingle);
+                                                    notify("Contoh 1 data chart (Hanya Reach) dimuat!");
+                                                }}
+                                                className="text-[10px] font-bold text-sky-700 hover:text-sky-900 bg-sky-100 px-2 py-0.5 rounded-md hover:underline"
+                                            >
+                                                + 1 Kolom (Reach)
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    const sampleText = `00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1\n02:00 - 03:00\t3.1\t16.5\tSegmen 1\n03:00 - 04:00\t1.8\t9.1\tBreak Iklan 1\n04:00 - 05:00\t3.4\t17.8\tSegmen 2\n05:00 - 06:00\t3.7\t18.9\tSegmen 2\n06:00 - 07:00\t3.5\t17.4\tSegmen 2\n07:00 - 08:00\t1.9\t9.5\tBreak Iklan 2\n08:00 - 09:00\t3.6\t18.2\tSegmen 3\n09:00 - 10:00\t3.2\t16.0\tSegmen 3`;
+                                                    setPastedRatingText(sampleText);
+                                                    notify("Contoh data rating Nielsen (TVR + Share) dimuat!");
+                                                }}
+                                                className="text-[10px] font-bold text-lime-700 hover:text-lime-900 bg-limePill px-2 py-0.5 rounded-md hover:underline"
+                                            >
+                                                + TVR & Share
+                                            </button>
+                                        </div>
                                     </div>
                                     <textarea 
                                         value={pastedRatingText}
                                         onChange={(e) => setPastedRatingText(e.target.value)}
                                         rows={8}
-                                        placeholder={"Tempel data Excel di sini...\nContoh:\n00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1"}
+                                        placeholder={"Tempel data Excel di sini...\nContoh (Hanya 1 Kolom):\n00:00 - 01:00\t14.8\n01:00 - 02:00\t15.2\n\nAtau dengan judul header:\nWaktu\tReach\tShare\tUnit\n14:00:00 - 14:01:00\t13.5\t58.0\tSegmen 1"}
                                         className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs font-mono font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 resize-y leading-relaxed shadow-inner"
                                     />
                                 </div>
@@ -4640,16 +4321,28 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                 if (!showRatingChart || !mbmRows || mbmRows.length === 0) return null;
 
                 const chartWidth = 1100;
-                const chartHeight = isChartCompact ? 32 : 92;
+                // Attachment 4: Tinggi dinamis dari chartCustomHeight (bisa di-resize dengan drag)
+                const chartHeight = isChartCompact ? 32 : chartCustomHeight;
                 const padL = 36;
                 const padR = 36;
                 const padT = 16;
-                const padB = 20;
+                const padB = 22;
                 const plotW = chartWidth - padL - padR;
-                const plotH = chartHeight - padT - padB;
+                const plotH = Math.max(16, chartHeight - padT - padB);
 
-                const maxTvrVal = Math.max(4.0, ...mbmRows.map(r => Number(r.tvr) || 0)) * 1.15;
-                const maxShareVal = Math.max(15.0, ...mbmRows.map(r => Number(r.share) || 0)) * 1.15;
+                // Metrik Aktif & Skala Axis Otomatis (Attachment 3 & 4)
+                // "axis automatisasi ketinggiannya mengikuti matrix yang paling tinggi dan aktif"
+                const activeMetrics = chartMetrics.filter(m => m.active);
+                let highestActiveVal = 1.0;
+                if (activeMetrics.length > 0) {
+                    activeMetrics.forEach(m => {
+                        const mMax = Math.max(0, ...mbmRows.map(r => Number(r[m.key]) || 0));
+                        if (mMax > highestActiveVal) highestActiveVal = mMax;
+                    });
+                } else {
+                    highestActiveVal = 10.0;
+                }
+                const axisMax = Math.max(1.0, highestActiveVal * 1.15);
 
                 const points = mbmRows.map((r, i) => {
                     const parts = (r.rentangWaktu || "").split('-');
@@ -4658,35 +4351,51 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                     const sMid = (sStart + sEnd) / 2;
                     const x = padL + (i / Math.max(1, mbmRows.length - 1)) * plotW;
 
-                    const tvrNum = Number(r.tvr) || 0;
-                    const shareNum = Number(r.share) || 0;
-                    const yTvr = (padT + plotH) - (tvrNum / maxTvrVal) * plotH;
-                    const yShare = (padT + plotH) - (shareNum / maxShareVal) * plotH;
+                    // Koordinat Y untuk setiap metrik terdaftar
+                    const metricCoords = {};
+                    chartMetrics.forEach(m => {
+                        const val = Number(r[m.key]) || 0;
+                        const y = (padT + plotH) - (val / axisMax) * plotH;
+                        metricCoords[m.key] = { val, y };
+                    });
 
-                    const prevTvr = i > 0 ? (Number(mbmRows[i - 1].tvr) || 0) : null;
+                    const tvrNum = Number(r.tvr) || (metricCoords['tvr'] ? metricCoords['tvr'].val : 0);
+                    const shareNum = Number(r.share) || (metricCoords['share'] ? metricCoords['share'].val : 0);
+                    const yTvr = metricCoords['tvr'] ? metricCoords['tvr'].y : ((padT + plotH) - (tvrNum / axisMax) * plotH);
+                    const yShare = metricCoords['share'] ? metricCoords['share'].y : ((padT + plotH) - (shareNum / axisMax) * plotH);
+
+                    // Delta kenaikan/penurunan pada metrik pertama yang aktif
+                    const primaryKey = activeMetrics.length > 0 ? activeMetrics[0].key : 'tvr';
+                    const curPrimaryVal = Number(r[primaryKey]) || 0;
+                    const prevPrimaryVal = i > 0 ? (Number(mbmRows[i - 1][primaryKey]) || 0) : null;
                     let delta = null;
                     let pct = null;
-                    if (prevTvr !== null && prevTvr > 0) {
-                        delta = tvrNum - prevTvr;
-                        pct = (delta / prevTvr) * 100;
+                    if (prevPrimaryVal !== null && prevPrimaryVal > 0) {
+                        delta = curPrimaryVal - prevPrimaryVal;
+                        pct = (delta / prevPrimaryVal) * 100;
                     }
 
-                    return { ...r, sStart, sEnd, sMid, x, yTvr, yShare, tvrNum, shareNum, delta, pct };
+                    return { ...r, sStart, sEnd, sMid, x, metricCoords, yTvr, yShare, tvrNum, shareNum, delta, pct };
                 });
 
-                const activeIdx = points.findIndex(p => currentTime >= p.sStart && currentTime < p.sEnd);
+                // Sinkronisasi Detik Video vs Waktu Siaran (Attachment 2)
+                const effectiveTime = (broadcastBaseTime > 0) ? (currentTime + broadcastBaseTime) : currentTime;
+                const activeIdx = points.findIndex(p => effectiveTime >= p.sStart && effectiveTime < p.sEnd);
                 const activePoint = activeIdx !== -1 ? points[activeIdx] : points[0];
 
                 let scrubberX = padL;
                 if (activeIdx !== -1) {
                     const p = points[activeIdx];
                     const segDur = Math.max(1, p.sEnd - p.sStart);
-                    const segProg = Math.max(0, Math.min(1, (currentTime - p.sStart) / segDur));
+                    const segProg = Math.max(0, Math.min(1, (effectiveTime - p.sStart) / segDur));
                     const nextX = activeIdx < points.length - 1 ? points[activeIdx + 1].x : (padL + plotW);
                     scrubberX = p.x + segProg * (nextX - p.x);
                 } else if (points.length > 0) {
-                    const totalDur = Math.max(videoDuration || 0, points[points.length - 1].sEnd || 480);
-                    scrubberX = padL + Math.min(plotW, Math.max(0, (currentTime / totalDur) * plotW));
+                    const firstStart = points[0].sStart;
+                    const lastEnd = points[points.length - 1].sEnd;
+                    const totalDur = Math.max(1, lastEnd - firstStart);
+                    const relTime = Math.max(0, Math.min(totalDur, effectiveTime - firstStart));
+                    scrubberX = padL + (relTime / totalDur) * plotW;
                 }
 
                 const tvrLinePath = getSmoothSvgPath(points, 'yTvr');
@@ -4694,11 +4403,39 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                 const tvrAreaPath = getSmoothAreaPath(points, 'yTvr', padT + plotH);
                 const shareAreaPath = getSmoothAreaPath(points, 'yShare', padT + plotH);
 
+                // Handler Drag Resize Tinggi Grafik (Attachment 4)
+                const handleStartResizeChart = (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const startY = e.clientY || (e.touches && e.touches[0]?.clientY) || 0;
+                    const startH = chartCustomHeight;
+
+                    const onMove = (moveEvt) => {
+                        const curY = moveEvt.clientY || (moveEvt.touches && moveEvt.touches[0]?.clientY) || startY;
+                        const diffY = isOverlay ? (startY - curY) : (curY - startY);
+                        const newH = Math.max(65, Math.min(360, Math.round(startH + diffY)));
+                        setChartCustomHeight(newH);
+                        try { localStorage.setItem('mbm_chart_custom_height', newH); } catch(err) {}
+                    };
+
+                    const onEnd = () => {
+                        window.removeEventListener('mousemove', onMove);
+                        window.removeEventListener('mouseup', onEnd);
+                        window.removeEventListener('touchmove', onMove);
+                        window.removeEventListener('touchend', onEnd);
+                    };
+
+                    window.addEventListener('mousemove', onMove);
+                    window.addEventListener('mouseup', onEnd);
+                    window.addEventListener('touchmove', onMove);
+                    window.addEventListener('touchend', onEnd);
+                };
+
                 return (
                     <div 
                         className={
                             isOverlay
-                                ? ("absolute left-2 sm:left-4 right-2 sm:right-4 z-30 pointer-events-auto transition-all duration-200 select-none " + (isVideoZoomed ? "bottom-14 sm:bottom-16" : "bottom-12 sm:bottom-14"))
+                                ? ("absolute left-2 sm:left-4 right-2 sm:right-4 z-35 pointer-events-auto transition-all duration-200 select-none " + (isVideoZoomed ? "bottom-14 sm:bottom-16" : "bottom-12 sm:bottom-14"))
                                 : "w-full bg-slate-950 text-white rounded-3xl border border-slate-800 p-3 sm:p-4 shadow-xl transition-all duration-200 select-none mt-3"
                         }
                     >
@@ -4707,37 +4444,71 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 ? ("border border-white/15 bg-slate-950/75 sm:bg-slate-950/80 backdrop-blur-md opacity-85 hover:opacity-100 hover:bg-slate-950/95 hover:border-slate-700/80 rounded-2xl sm:rounded-3xl shadow-2xl text-white transition-all overflow-hidden group/chart " + (isChartCompact ? "px-2.5 py-1.5" : "p-2 sm:p-2.5"))
                                 : ("rounded-2xl text-white overflow-hidden " + (isChartCompact ? "p-1" : "space-y-2"))
                         }>
+                            {/* Drag Bar Ubah Tinggi Grafik Secara Dinamis (Attachment 4) */}
+                            {!isChartCompact && (
+                                <div 
+                                    onMouseDown={handleStartResizeChart}
+                                    onTouchStart={handleStartResizeChart}
+                                    className="w-full flex items-center justify-center py-1 cursor-ns-resize group/resizer hover:bg-white/10 transition-colors select-none -mt-1 mb-1 border-b border-white/5"
+                                    title={`Tarik ke atas/bawah untuk mengubah tinggi grafik secara dinamis (Tinggi saat ini: ${chartHeight}px)`}
+                                >
+                                    <div className="w-16 h-1 rounded-full bg-white/25 group-hover/resizer:bg-neon group-hover/resizer:w-28 transition-all flex items-center justify-center">
+                                        <span className="opacity-0 group-hover/resizer:opacity-100 text-[8px] font-mono font-bold text-obsidian bg-neon px-1.5 rounded-full -top-3.5 relative shadow-xs pointer-events-none">
+                                            {chartHeight}px
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Header Bar Ringkas */}
                             <div className={"flex items-center justify-between gap-2 transition-all " + (isChartCompact ? "" : "pb-1.5 mb-1 border-b border-white/10")}>
                                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0 flex-wrap">
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowChartTvr(!showChartTvr)}
-                                        className={"flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-lg transition-all " + (showChartTvr ? "bg-neon/15 text-neon border border-neon/40 shadow-sm" : "opacity-40 text-slate-400 border border-transparent")}
-                                        title="Klik untuk tampilkan/sembunyikan data TVR (Rating Poin)"
-                                    >
-                                        <span className="w-2.5 h-2.5 rounded-full bg-neon border border-black shadow-[0_0_6px_#ccff00]"></span>
-                                        <span>TVR (Rating)</span>
-                                    </button>
+                                    {/* Tombol Metrik Rating Fleksibel & Dinamis (Attachment 3 & 4) */}
+                                    {/* Dapat diklik untuk OFF (menjadi tidak berwarna / abu-abu netral) */}
+                                    {chartMetrics.map(m => {
+                                        const isActive = m.active;
+                                        return (
+                                            <button 
+                                                key={m.key}
+                                                type="button"
+                                                onClick={() => toggleMetricActive(m.key)}
+                                                className={"flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-lg transition-all " + (
+                                                    isActive 
+                                                        ? "border shadow-sm" 
+                                                        : "bg-white/5 text-slate-400 border border-white/10 opacity-60 hover:opacity-100 hover:text-slate-200"
+                                                )}
+                                                style={isActive ? {
+                                                    backgroundColor: `${m.color}20`,
+                                                    borderColor: `${m.color}60`,
+                                                    color: m.color
+                                                } : {}}
+                                                title={`Klik untuk ON/OFF metrik ${m.label}. Saat OFF, tombol menjadi tidak berwarna (netral) dan axis otomatis menyesuaikan ke metrik tertinggi yang aktif.`}
+                                            >
+                                                <span 
+                                                    className={"w-2.5 h-2.5 rounded-full border border-black/40 transition-all " + (isActive ? "" : "bg-slate-500")}
+                                                    style={isActive ? {
+                                                        backgroundColor: m.color,
+                                                        boxShadow: `0 0 6px ${m.color}`
+                                                    } : {}}
+                                                ></span>
+                                                <span>{m.label}</span>
+                                            </button>
+                                        );
+                                    })}
 
-                                    <button 
-                                        type="button"
-                                        onClick={() => setShowChartShare(!showChartShare)}
-                                        className={"flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-lg transition-all " + (showChartShare ? "bg-sky-500/15 text-sky-300 border border-sky-400/40 shadow-sm" : "opacity-40 text-slate-400 border border-transparent")}
-                                        title="Klik untuk tampilkan/sembunyikan data Share (%)"
-                                    >
-                                        <span className="w-2.5 h-2.5 rounded-full bg-sky-400 border border-black shadow-[0_0_6px_#38bdf8]"></span>
-                                        <span>Share (%)</span>
-                                    </button>
-
+                                    {/* Tombol Delta (+/-) - Bisa diklik untuk OFF menjadi tidak berwarna (Attachment 4) */}
                                     {!isChartCompact && (
                                         <button 
                                             type="button"
                                             onClick={() => setShowChartDelta(!showChartDelta)}
-                                            className={"flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-lg transition-all " + (showChartDelta ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/30" : "opacity-40 text-slate-400 border border-transparent")}
-                                            title="Tampilkan / sembunyikan badge perbandingan delta naik-turun"
+                                            className={"flex items-center gap-1.5 text-[11px] font-bold px-2 py-0.5 rounded-lg transition-all " + (
+                                                showChartDelta 
+                                                    ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/40 shadow-sm" 
+                                                    : "bg-white/5 text-slate-400 border border-white/10 opacity-60 hover:opacity-100 hover:text-slate-200"
+                                            )}
+                                            title="Klik untuk ON/OFF badge kenaikan/penurunan (+/-). Saat OFF, tombol menjadi tidak berwarna (netral)."
                                         >
-                                            <i className="fa-solid fa-arrow-up-right-dots text-[9px]"></i>
+                                            <i className={"fa-solid fa-chart-line text-[10px] " + (showChartDelta ? "text-emerald-300" : "text-slate-400")}></i>
                                             <span className="hidden sm:inline">Delta (+/-)</span>
                                         </button>
                                     )}
@@ -5010,7 +4781,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 </div>
                             )}
 
-                            {/* Chart Canvas Area (Tinggi 1/2 Lebih Pendek, Ultra Wide) */}
+                            {/* Chart Canvas Area (Tinggi Dinamis, Ultra Wide, Skala Otomatis) */}
                             {!isChartCompact && (
                                 <div className="relative">
                                     <svg 
@@ -5023,11 +4794,11 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             const svgX = clickX * scaleX;
                                             const normX = Math.max(0, Math.min(1, (svgX - padL) / plotW));
                                             const targetIdx = Math.round(normX * (points.length - 1));
-                                            const targetTime = points[targetIdx]?.sStart || 0;
-                                            if (videoRef && videoRef.current) {
-                                                videoRef.current.currentTime = targetTime;
-                                                setCurrentTime(targetTime);
-                                                notify("Melompat ke menit " + formatTime(targetTime));
+                                            const targetPoint = points[targetIdx];
+                                            if (targetPoint) {
+                                                // Attachment 2: Gunakan seekVideo agar waktu siaran (14:00:00 dll) dikonversi dan video tidak freeze!
+                                                seekVideo(targetPoint.sStart, isPlaying);
+                                                notify("Navigasi ke menit: " + (targetPoint.rentangWaktu || formatTime(targetPoint.sStart)));
                                             }
                                         }}
                                     >
@@ -5045,83 +4816,113 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             </filter>
                                         </defs>
 
-                                        {/* Grid Horizontal & Ticks Sumbu Y */}
+                                        {/* Grid Horizontal & Ticks Sumbu Y Otomatis (Attachment 4: Mengikuti Metrik Tertinggi & Aktif) */}
                                         {[0, 0.5, 1].map((pct, idx) => {
                                             const y = padT + plotH * pct;
-                                            const tvrVal = ((1 - pct) * maxTvrVal).toFixed(1);
-                                            const shareVal = Math.round((1 - pct) * maxShareVal);
+                                            const val = (1 - pct) * axisMax;
+                                            const primaryLabel = val.toFixed(1) + (activeMetrics[0]?.isPercent ? "%" : "");
                                             return (
                                                 <g key={idx}>
                                                     <line x1={padL} y1={y} x2={padL + plotW} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="3,3" />
-                                                    <text x={padL - 5} y={y + 2.5} fill="#94a3b8" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="end">{tvrVal}</text>
-                                                    {showChartShare && (
-                                                        <text x={padL + plotW + 5} y={y + 2.5} fill="#38bdf8" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="start">{shareVal}%</text>
+                                                    <text x={padL - 5} y={y + 2.5} fill={activeMetrics[0]?.color || "#94a3b8"} fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="end">
+                                                        {primaryLabel}
+                                                    </text>
+                                                    {activeMetrics.length > 1 && (
+                                                        <text x={padL + plotW + 5} y={y + 2.5} fill={activeMetrics[1]?.color || "#38bdf8"} fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="start">
+                                                            {val.toFixed(1) + (activeMetrics[1]?.isPercent ? "%" : "")}
+                                                        </text>
                                                     )}
                                                 </g>
                                             );
                                         })}
 
-                                        {/* Area Fill Di Bawah Kurva */}
-                                        {showChartShare && shareAreaPath && (
-                                            <path d={shareAreaPath} fill="url(#transDarkArea)" />
-                                        )}
-                                        {showChartTvr && tvrAreaPath && (
-                                            <path d={tvrAreaPath} fill="url(#transLimeArea)" />
-                                        )}
-
-                                        {/* Smooth Bezier Spline Curves */}
-                                        {showChartShare && shareLinePath && (
-                                            <path d={shareLinePath} fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                        )}
-                                        {showChartTvr && tvrLinePath && (
-                                            <path d={tvrLinePath} fill="none" stroke="#ccff00" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round" filter="url(#neonGlowWide)" />
-                                        )}
+                                        {/* Area & Garis Kurva untuk Setiap Metrik yang AKTIF (Attachment 3 & 4) */}
+                                        {activeMetrics.map((m, mIdx) => {
+                                            const isPrimary = mIdx === 0;
+                                            const lPath = getSmoothSvgPath(points.map(p => ({ x: p.x, y: p.metricCoords[m.key]?.y ?? (padT + plotH) })), 'y');
+                                            const aPath = getSmoothAreaPath(points.map(p => ({ x: p.x, y: p.metricCoords[m.key]?.y ?? (padT + plotH) })), 'y', padT + plotH);
+                                            return (
+                                                <g key={m.key}>
+                                                    {aPath && <path d={aPath} fill={m.color} fillOpacity="0.16" />}
+                                                    {lPath && (
+                                                        <path 
+                                                            d={lPath} 
+                                                            fill="none" 
+                                                            stroke={m.color} 
+                                                            strokeWidth={isPrimary ? "2.6" : "2"} 
+                                                            strokeLinecap="round" 
+                                                            strokeLinejoin="round" 
+                                                        />
+                                                    )}
+                                                </g>
+                                            );
+                                        })}
 
                                         {/* Titik Point, Angka Nilai & Delta Badge */}
                                         {points.map((p, i) => {
-                                            const showDelta = showChartDelta && p.delta !== null && (points.length <= 18 || i % 2 === 0 || i === activeIdx);
+                                            const isSelected = activeIdx === i;
+                                            const showDelta = showChartDelta && p.delta !== null && (points.length <= 25 || i % 2 === 0 || i === activeIdx);
                                             const isPositive = p.delta >= 0;
                                             return (
                                                 <g key={i}>
-                                                    {showChartShare && (
-                                                        <circle cx={p.x} cy={p.yShare} r="2.5" fill="#38bdf8" stroke="#090d16" strokeWidth="1" />
-                                                    )}
-
-                                                    {showChartTvr && (
-                                                        <>
-                                                            <circle cx={p.x} cy={p.yTvr} r="3" fill="#ccff00" stroke="#090d16" strokeWidth="1.5" />
-                                                            
-                                                            {/* Angka Data Tebal Di Kurva */}
-                                                            <text x={p.x} y={p.yTvr + 9} fill="#ffffff" fontSize="7.5" fontWeight="800" textAnchor="middle">
-                                                                {p.tvrNum.toFixed(1)}
-                                                            </text>
-
-                                                            {/* Delta Callout Badges Melayang */}
-                                                            {showDelta && (
-                                                                <g transform={"translate(" + p.x + ", " + (p.yTvr - 12) + ")"}>
-                                                                    <rect 
-                                                                        x="-22" 
-                                                                        y="-6.5" 
-                                                                        width="44" 
-                                                                        height="13" 
-                                                                        rx="6" 
-                                                                        fill={isPositive ? "#064e3b" : "#4c0519"} 
-                                                                        stroke={isPositive ? "#10b981" : "#f43f5e"} 
-                                                                        strokeWidth="0.8" 
-                                                                    />
+                                                    {/* Dots untuk semua metrik aktif */}
+                                                    {activeMetrics.map((m, mIdx) => {
+                                                        const coord = p.metricCoords[m.key];
+                                                        if (!coord) return null;
+                                                        const isPrimary = mIdx === 0;
+                                                        return (
+                                                            <g key={m.key}>
+                                                                <circle 
+                                                                    cx={p.x} 
+                                                                    cy={coord.y} 
+                                                                    r={isSelected ? (isPrimary ? 4.5 : 3.5) : (isPrimary ? 3 : 2.2)} 
+                                                                    fill={isSelected ? "#ffffff" : m.color} 
+                                                                    stroke="#090d16" 
+                                                                    strokeWidth={isPrimary ? "1.5" : "1"} 
+                                                                />
+                                                                {/* Angka Data Tebal Di Bawah Titik Utama */}
+                                                                {isPrimary && (
                                                                     <text 
-                                                                        x="0" 
-                                                                        y="2.5" 
-                                                                        fill={isPositive ? "#6ee7b7" : "#fda4af"} 
-                                                                        fontSize="6.5" 
-                                                                        fontWeight="bold" 
-                                                                        textAnchor="middle"
+                                                                        x={p.x} 
+                                                                        y={coord.y + 9} 
+                                                                        fill={isSelected ? "#ffffff" : "#f1f5f9"} 
+                                                                        fontSize={isSelected ? "8.5" : "7.5"} 
+                                                                        fontWeight={isSelected ? "900" : "800"} 
+                                                                        textAnchor="middle" 
+                                                                        fontFamily="monospace"
                                                                     >
-                                                                        {(isPositive ? "▲ +" : "▼ -") + Math.abs(p.delta).toFixed(1) + " | " + Math.abs(p.pct).toFixed(0) + "%"}
+                                                                        {coord.val.toFixed(1)}
                                                                     </text>
-                                                                </g>
-                                                            )}
-                                                        </>
+                                                                )}
+                                                            </g>
+                                                        );
+                                                    })}
+
+                                                    {/* Delta Callout Badges Melayang */}
+                                                    {showDelta && activeMetrics.length > 0 && (
+                                                        <g transform={"translate(" + p.x + ", " + (p.metricCoords[activeMetrics[0].key]?.y ? (p.metricCoords[activeMetrics[0].key].y - 12) : (padT - 2)) + ")"}>
+                                                            <rect 
+                                                                x="-20" 
+                                                                y="-6.5" 
+                                                                width="40" 
+                                                                height="13" 
+                                                                rx="6" 
+                                                                fill={isPositive ? "#064e3b" : "#4c0519"} 
+                                                                stroke={isPositive ? "#10b981" : "#f43f5e"} 
+                                                                strokeWidth="0.8" 
+                                                            />
+                                                            <text 
+                                                                x="0" 
+                                                                y="2.5" 
+                                                                fill={isPositive ? "#6ee7b7" : "#fda4af"} 
+                                                                fontSize="6.5" 
+                                                                fontWeight="bold" 
+                                                                textAnchor="middle" 
+                                                                fontFamily="monospace"
+                                                            >
+                                                                {(isPositive ? "▲ +" : "▼ -") + Math.abs(p.delta).toFixed(1) + (p.pct !== null ? (" | " + Math.abs(p.pct).toFixed(0) + "%") : "")}
+                                                            </text>
+                                                        </g>
                                                     )}
 
                                                     {/* Sumbu X Label Miring (-22 Derajat) */}
@@ -5129,9 +4930,9 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                         transform={"rotate(-22 " + p.x + " " + (padT + plotH + 13) + ")"} 
                                                         x={p.x} 
                                                         y={padT + plotH + 13} 
-                                                        fill="#cbd5e1" 
-                                                        fontSize="7" 
-                                                        fontWeight="600" 
+                                                        fill={isSelected ? "#ccff00" : "#cbd5e1"} 
+                                                        fontSize={isSelected ? "8" : "7"} 
+                                                        fontWeight={isSelected ? "bold" : "600"} 
                                                         textAnchor="end"
                                                     >
                                                         {p.rentangWaktu ? p.rentangWaktu.split("-")[0].trim() : (p.unit || `0${i}:00`)}
@@ -5151,10 +4952,10 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                 strokeWidth="1.8" 
                                                 strokeDasharray="3,3" 
                                             />
-                                            {activePoint && showChartTvr && (
+                                            {activePoint && activeMetrics.length > 0 && (
                                                 <circle 
                                                     cx={scrubberX} 
-                                                    cy={activePoint.yTvr} 
+                                                    cy={activePoint.metricCoords[activeMetrics[0].key]?.y ?? (padT + plotH / 2)} 
                                                     r="4.5" 
                                                     fill="#ccff00" 
                                                     stroke="#090d16" 
@@ -5188,9 +4989,9 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                     )}
 
                     {/* ======================================================== */}
-                    {/* TOP NAVBAR                                               */}
+                    {/* TOP NAVBAR (Attachment 1: Selalu di atas segala box z-[70]) */}
                     {/* ======================================================== */}
-                    <header className="h-16 px-6 flex items-center justify-between border-b border-slate-200/80 bg-white/70 backdrop-blur-md sticky top-0 z-40">
+                    <header className="h-16 px-6 flex items-center justify-between border-b border-slate-200/80 bg-white/95 backdrop-blur-md sticky top-0 z-[70] shadow-xs">
                         
                         {/* Kiri: Icon Bulat Hitam + 3 Tombol Sesuai Attachment 2 */}
                         <div className="flex items-center gap-2.5">
@@ -5836,7 +5637,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                     }}
                                                                     onMouseDown={(e) => startDragMask(mask.id, e)}
                                                                     onTouchStart={(e) => startDragMask(mask.id, e)}
-                                                                    className={`absolute z-30 rounded-xl cursor-move select-none flex flex-col justify-between p-1.5 transition-colors group/mask pointer-events-auto border-2 ${
+                                                                    className={`absolute z-20 rounded-xl cursor-move select-none flex flex-col justify-between p-1.5 transition-colors group/mask pointer-events-auto border-2 ${
                                                                         isFocus
                                                                             ? 'bg-emerald-600/30 hover:bg-emerald-600/40 border-emerald-400 shadow-[0_0_18px_rgba(16,185,129,0.4)] backdrop-blur-[0.5px]'
                                                                             : 'bg-red-600/40 hover:bg-red-600/50 border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.35)] backdrop-blur-[0.5px]'
@@ -5917,7 +5718,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
 
                                                         {/* KONTROL OVERLAY SAAT MODE NORMAL (Nav Bar Fleksibel & Anti-Tabrakan) */}
                                                         {!isVideoZoomed && (
-                                                            <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 z-30 flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap pointer-events-none">
+                                                            <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 z-35 flex items-center justify-between gap-1.5 sm:gap-2 flex-wrap pointer-events-none">
                                                                 {/* Kiri: TC Badge */}
                                                                 <div className="bg-obsidian/90 backdrop-blur-md text-neon font-mono text-[11px] sm:text-xs px-2.5 py-1 sm:py-1.5 rounded-xl border border-slate-700 font-bold pointer-events-auto shadow-md shrink-0 flex items-center gap-1.5">
                                                                     <span className="w-1.5 h-1.5 rounded-full bg-neon animate-pulse"></span>
@@ -6222,7 +6023,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                             if (parts.length === 2) {
                                                                                 const start = parseTimeToSeconds(parts[0]);
                                                                                 const end = parseTimeToSeconds(parts[1]);
-                                                                                isActiveSegment = currentTime >= start && currentTime < end;
+                                                                                const curEffective = (broadcastBaseTime > 0) ? (currentTime + broadcastBaseTime) : currentTime;
+                                                                                isActiveSegment = curEffective >= start && curEffective < end;
                                                                             }
 
                                                                             return (
@@ -6291,6 +6093,21 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                                                         {row.unit}
                                                                                                     </span>
                                                                                                 )}
+                                                                                                {/* Badges untuk Metrik Fleksibel Lainnya di Floating MBM */}
+                                                                                                {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share').map(m => {
+                                                                                                    const val = row[m.key];
+                                                                                                    if (val === undefined || val === null || val === "") return null;
+                                                                                                    return (
+                                                                                                        <span 
+                                                                                                            key={m.key}
+                                                                                                            className="text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] bg-purple-500/20 text-purple-300 border-purple-400/30 font-mono"
+                                                                                                            title={`${m.label}: ${val} - Klik untuk edit`}
+                                                                                                            onClick={() => setEditingRow({ ...row, index: idx + 1 })}
+                                                                                                        >
+                                                                                                            {m.label.split(' ')[0]}: {val}{m.isPercent ? '%' : ''}
+                                                                                                        </span>
+                                                                                                    );
+                                                                                                })}
                                                                                             </div>
                                                                                         )}
 
@@ -7235,11 +7052,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                         const svgX = clickX * scaleX;
                                                                         const normX = Math.max(0, Math.min(1, (svgX - padL) / plotW));
                                                                         const targetTime = normX * totalSec;
-                                                                        if (videoRef.current) {
-                                                                            videoRef.current.currentTime = targetTime;
-                                                                            setCurrentTime(targetTime);
-                                                                            notify(`Melompat ke menit ${formatTime(targetTime)}`);
-                                                                        }
+                                                                        seekVideo(targetTime, isPlaying);
+                                                                        notify(`Melompat ke menit ${formatTime(targetTime)}`);
                                                                     }}
                                                                 >
                                                                     <defs>
@@ -8507,6 +8321,21 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                             {row.unit}
                                                                         </span>
                                                                     )}
+                                                                    {/* Badges untuk Metrik Fleksibel Tambahan (misal: Reach, Impression) */}
+                                                                    {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share').map(m => {
+                                                                        const val = row[m.key];
+                                                                        if (val === undefined || val === null || val === "") return null;
+                                                                        return (
+                                                                            <span 
+                                                                                key={m.key}
+                                                                                className="text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] bg-purple-50 text-purple-700 border-purple-200 font-mono"
+                                                                                title={`${m.label}: ${val} - Klik untuk edit`}
+                                                                                onClick={() => setEditingRow({ ...row, index: idx + 1 })}
+                                                                            >
+                                                                                {m.label.split(' ')[0]}: {val}{m.isPercent ? '%' : ''}
+                                                                            </span>
+                                                                        );
+                                                                    })}
                                                                 </div>
                                                             )}
 
@@ -8884,9 +8713,9 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                     {/* Modal Tempel Data Nielsen Rating */}
                     {!isVideoZoomed && renderRatingModal()}
 
-                    {/* DYNAMIC ISLAND PROJECT SWITCHER (5 PROJECT SLOTS) */}
+                    {/* DYNAMIC ISLAND PROJECT SWITCHER (Attachment 1: Selalu di atas segala box z-[70]) */}
                     {!isVideoZoomed && (
-                        <div className="fixed bottom-5 sm:bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center bg-obsidian/95 text-white p-1.5 px-3 rounded-full shadow-2xl border border-white/15 backdrop-blur-xl gap-2 select-none animate-fadeIn">
+                        <div className="fixed bottom-5 sm:bottom-6 left-1/2 -translate-x-1/2 z-[70] flex items-center bg-obsidian/95 text-white p-1.5 px-3 rounded-full shadow-2xl border border-white/15 backdrop-blur-xl gap-2 select-none animate-fadeIn">
                             <div className="flex items-center gap-1.5 pr-2.5 border-r border-white/15 text-[10px] font-black uppercase text-neon tracking-wider">
                                 <span className="w-2 h-2 rounded-full bg-neon animate-pulse"></span>
                                 <span>PROYEK</span>
