@@ -930,6 +930,57 @@
                 const remSecs = totalSeconds % 60;
                 return remSecs > 0 ? `${mins} menit ${remSecs} detik` : `${mins} menit`;
             };
+
+            // Helper Format Angka Nielsen (TVR, Share, Unit Jutaan, Reach, Index)
+            const parseCleanNumber = (str) => {
+                if (str === undefined || str === null) return NaN;
+                let s = String(str).trim().replace('%', '');
+                if (s.includes('.') && s.includes(',')) {
+                    if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+                        s = s.replace(/\./g, '').replace(',', '.');
+                    } else {
+                        s = s.replace(/,/g, '');
+                    }
+                } else if (s.includes('.') && (s.match(/\./g) || []).length > 1) {
+                    s = s.replace(/\./g, '');
+                } else if (s.includes(',') && (s.match(/,/g) || []).length > 1) {
+                    s = s.replace(/,/g, '');
+                } else if (s.includes(',') && !s.includes('.')) {
+                    const parts = s.split(',');
+                    if (parts.length === 2 && parts[1].length === 3 && Number(parts[0]) > 0) {
+                        s = s.replace(/,/g, '');
+                    } else {
+                        s = s.replace(',', '.');
+                    }
+                }
+                return Number(s);
+            };
+
+            const formatNielsenNumber = (val, isPercent = false) => {
+                if (val === undefined || val === null || isNaN(Number(val))) return "-";
+                const num = Number(val);
+                if (isPercent) return `${num.toFixed(1)}%`;
+                if (num >= 1000000) {
+                    return num.toLocaleString('id-ID', { maximumFractionDigits: 1 });
+                }
+                if (num >= 1000) {
+                    return num.toLocaleString('id-ID', { maximumFractionDigits: 0 });
+                }
+                if (num % 1 !== 0) {
+                    return num.toFixed(num < 15 ? 2 : 1);
+                }
+                return String(num);
+            };
+
+            const formatCompactAxis = (val, isPercent = false) => {
+                if (val === undefined || val === null || isNaN(Number(val))) return "";
+                const num = Number(val);
+                if (isPercent) return `${num.toFixed(1)}%`;
+                if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
+                if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
+                if (num % 1 !== 0 && num < 20) return num.toFixed(1);
+                return String(Math.round(num));
+            };
             
             const [watermarkText, setWatermarkText] = useState(() => localStorage.getItem('mbm_watermark') || "MNC CHANNELS");
             const [notesText, setNotesText] = useState(() => localStorage.getItem('mbm_notes') || "");
@@ -1100,6 +1151,8 @@
             const [showRatingChart, setShowRatingChart] = useState(true);
             const [showRatingModal, setShowRatingModal] = useState(false);
             const [pastedRatingText, setPastedRatingText] = useState("");
+            const [pasteRatingMode, setPasteRatingMode] = useState('auto'); // 'auto' | 'both' | 'tvr' | 'share' | 'unit'
+            const [analyticsMetricKey, setAnalyticsMetricKey] = useState(null); // metrik yang dipilih untuk dianalisis
             const [isAutoScrollMbm, setIsAutoScrollMbm] = useState(true);
             const [isChartCompact, setIsChartCompact] = useState(false);
             const [showChartDelta, setShowChartDelta] = useState(true);
@@ -1116,20 +1169,31 @@
                 return 120;
             });
 
-            // Metrik Rating Fleksibel & Dinamis (Attachment 3 & 4)
-            // Bisa TVR, Share, Reach, Impression, atau hanya 1 kolom data
+            // Metrik Rating Fleksibel & Dinamis (Nielsen Standard: TVR, SHARE, UNIT, REACH, INDEX)
+            const defaultNielsenMetrics = [
+                { key: 'tvr', label: 'TVR (Rating)', color: '#ccff00', active: true, isPercent: false },
+                { key: 'share', label: 'Share (%)', color: '#38bdf8', active: true, isPercent: true },
+                { key: 'unit', label: 'Unit (Penonton)', color: '#c084fc', active: false, isPercent: false },
+                { key: 'reach', label: 'Reach (%)', color: '#f59e0b', active: false, isPercent: true },
+                { key: 'index', label: 'Index', color: '#34d399', active: false, isPercent: false }
+            ];
+
             const [chartMetrics, setChartMetrics] = useState(() => {
                 try {
                     const saved = localStorage.getItem('mbm_chart_metrics_v2');
                     if (saved) {
                         const parsed = JSON.parse(saved);
-                        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+                        if (Array.isArray(parsed) && parsed.length > 0) {
+                            defaultNielsenMetrics.forEach(d => {
+                                if (!parsed.some(p => p.key === d.key)) {
+                                    parsed.push(d);
+                                }
+                            });
+                            return parsed;
+                        }
                     }
                 } catch(e) {}
-                return [
-                    { key: 'tvr', label: 'TVR (Rating)', color: '#ccff00', active: true, isPercent: false },
-                    { key: 'share', label: 'Share (%)', color: '#38bdf8', active: true, isPercent: true }
-                ];
+                return defaultNielsenMetrics;
             });
 
             const toggleMetricActive = (metricKey) => {
@@ -1195,15 +1259,17 @@
             const ratingStats = React.useMemo(() => {
                 const res = { totalPoints: mbmRows.length };
                 chartMetrics.forEach(m => {
-                    const valid = mbmRows.filter(r => r[m.key] !== undefined && r[m.key] !== null && !isNaN(Number(r[m.key])));
+                    const valid = mbmRows.filter(r => r[m.key] !== undefined && r[m.key] !== null && !isNaN(parseCleanNumber(r[m.key])));
                     if (valid.length > 0) {
-                        const vals = valid.map(r => Number(r[m.key]));
+                        const vals = valid.map(r => parseCleanNumber(r[m.key]));
                         const sum = vals.reduce((a, b) => a + b, 0);
                         const max = Math.max(...vals);
-                        const isDec = m.isPercent || max < 100;
+                        const avgVal = sum / valid.length;
                         res[m.key] = {
-                            avg: (sum / valid.length).toFixed(isDec ? (max < 15 ? 2 : 1) : 0),
-                            peak: max.toFixed(isDec ? (max < 15 ? 2 : 1) : 0)
+                            avg: formatNielsenNumber(avgVal, m.isPercent),
+                            peak: formatNielsenNumber(max, m.isPercent),
+                            rawAvg: avgVal,
+                            rawPeak: max
                         };
                     }
                 });
@@ -1256,18 +1322,50 @@
 
             // Hitung Analisis Statistik Lanjutan, Bentuk Kurva & Korelasi Emosi Konten
             const statisticalAnalytics = React.useMemo(() => {
-                const validRows = mbmRows.filter(r => r.tvr !== undefined && r.tvr !== null && !isNaN(Number(r.tvr)));
+                // Tentukan metrik target untuk dianalisis:
+                // 1. Jika user memilih secara eksplisit melalui tab (analyticsMetricKey) dan metrik tersebut aktif
+                // 2. Jika tidak, ikuti metrik yang sedang AKTIF di grafik (chartMetrics.filter(m => m.active))
+                // 3. Fallback ke metrik yang tersedia data numeriknya
+                const activeMetricsList = chartMetrics.filter(m => m.active);
+                let targetMetric = null;
+                if (analyticsMetricKey && chartMetrics.some(m => m.key === analyticsMetricKey && m.active)) {
+                    targetMetric = chartMetrics.find(m => m.key === analyticsMetricKey);
+                }
+                if (!targetMetric) {
+                    targetMetric = activeMetricsList.length > 0 ? activeMetricsList[0] : chartMetrics[0];
+                }
+                if (!targetMetric) {
+                    targetMetric = { key: 'tvr', label: 'TVR (Rating)', isPercent: false };
+                }
+
+                let targetKey = targetMetric.key;
+                let validRows = mbmRows.filter(r => r[targetKey] !== undefined && r[targetKey] !== null && !isNaN(parseCleanNumber(r[targetKey])));
+
+                // Fallback jika targetKey saat ini kosong datanya, tetapi ada metrik lain yang ada angkanya
+                if (validRows.length === 0) {
+                    const fallbackM = chartMetrics.find(m => mbmRows.some(r => r[m.key] !== undefined && r[m.key] !== null && !isNaN(parseCleanNumber(r[m.key]))));
+                    if (fallbackM) {
+                        targetMetric = fallbackM;
+                        targetKey = fallbackM.key;
+                        validRows = mbmRows.filter(r => r[targetKey] !== undefined && r[targetKey] !== null && !isNaN(parseCleanNumber(r[targetKey])));
+                    }
+                }
+
                 if (validRows.length === 0) return null;
 
+                const targetLabel = targetMetric.label ? targetMetric.label.split(' ')[0] : (targetKey === 'share' ? 'Share' : (targetKey === 'unit' ? 'Unit' : 'TVR'));
+                const isPercentMetric = targetMetric.isPercent || targetKey === 'share' || targetKey === 'reach' || targetLabel.toLowerCase().includes('share') || targetLabel.includes('%');
+                const unitSuffix = isPercentMetric ? '%' : (targetKey === 'unit' ? ' penonton' : ' poin');
+
                 const N = validRows.length;
-                const tvrValues = validRows.map(r => Number(r.tvr));
-                const meanTvr = tvrValues.reduce((a, b) => a + b, 0) / N;
+                const metricValues = validRows.map(r => parseCleanNumber(r[targetKey]));
+                const meanVal = metricValues.reduce((a, b) => a + b, 0) / N;
 
                 // 1. Regresi Linear Slope (Beta) & Korelasi Pearson (r)
                 let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
                 validRows.forEach((r, i) => {
                     const x = i;
-                    const y = Number(r.tvr);
+                    const y = parseCleanNumber(r[targetKey]);
                     sumX += x;
                     sumY += y;
                     sumXY += x * y;
@@ -1280,151 +1378,217 @@
                 const pearsonR = denomR !== 0 ? ((N * sumXY - sumX * sumY) / denomR) : 0;
 
                 // 2. Volatilitas Audiens (Standar Deviasi Sigma)
-                const variance = tvrValues.reduce((acc, val) => acc + Math.pow(val - meanTvr, 2), 0) / N;
+                const variance = metricValues.reduce((acc, val) => acc + Math.pow(val - meanVal, 2), 0) / N;
                 const stdDev = Math.sqrt(variance);
 
                 // 3. Tipologi Bentuk Kurva Penyiaran (Broadcast Curve Typology)
+                const slopeThreshold = targetKey === 'unit' ? (meanVal * 0.015) : 0.035;
                 let curveTypology = {
                     name: "Plateau / Retensi Stabil",
                     icon: "fa-grip-lines",
                     color: "text-sky-300",
                     badge: "Retensi Audiens Loyal",
-                    desc: "Fluktuasi TVR stabil tanpa penurunan signifikan, basis penonton sangat loyal."
+                    desc: `Fluktuasi ${targetLabel} stabil tanpa penurunan signifikan, basis penonton sangat loyal.`
                 };
-                if (slopeBeta >= 0.035) {
+                const slopeFormatted = Math.abs(slopeBeta) >= 1000 ? formatCompactAxis(Math.abs(slopeBeta)) : Math.abs(slopeBeta).toFixed(2);
+                if (slopeBeta >= slopeThreshold) {
                     curveTypology = {
                         name: "Ascending Hook (Tangga Naik)",
                         icon: "fa-arrow-trend-up",
                         color: "text-neon",
                         badge: "Daya Tarik Meningkat",
-                        desc: `TVR bertumbuh +${slopeBeta.toFixed(2)} poin per segmen. Cerita berhasil menarik penonton baru masuk.`
+                        desc: `${targetLabel} bertumbuh +${slopeFormatted}${unitSuffix} per segmen. Konten berhasil menarik audiens baru masuk.`
                     };
-                } else if (slopeBeta <= -0.035) {
+                } else if (slopeBeta <= -slopeThreshold) {
                     curveTypology = {
                         name: "Descending Churn (Pelepasan Audiens)",
                         icon: "fa-arrow-trend-down",
                         color: "text-rose-400",
                         badge: "Risiko Pindah Channel",
-                        desc: `TVR mengalami penurunan rata-rata ${Math.abs(slopeBeta).toFixed(2)} poin per segmen.`
+                        desc: `${targetLabel} mengalami penurunan rata-rata ${slopeFormatted}${unitSuffix} per segmen.`
                     };
                 }
 
                 // 4. Retensi Iklan & Pemulihan (Bounce-Back Ratio)
                 const adRows = validRows.filter(r => {
                     const u = String(r.unit || "").toLowerCase();
-                    return u.includes('iklan') || u.includes('break') || u.includes('ads');
+                    const d = String(r.deskripsi || "").toLowerCase();
+                    return u.includes('iklan') || u.includes('break') || u.includes('ads') || d.includes('iklan') || d.includes('break');
                 });
                 const progRows = validRows.filter(r => {
                     const u = String(r.unit || "").toLowerCase();
-                    return !u.includes('iklan') && !u.includes('break') && !u.includes('ads');
+                    const d = String(r.deskripsi || "").toLowerCase();
+                    return !u.includes('iklan') && !u.includes('break') && !u.includes('ads') && !d.includes('iklan') && !d.includes('break');
                 });
-                const avgProgTvr = progRows.length > 0 ? (progRows.reduce((a, b) => a + Number(b.tvr), 0) / progRows.length) : meanTvr;
-                const avgAdTvr = adRows.length > 0 ? (adRows.reduce((a, b) => a + Number(b.tvr), 0) / adRows.length) : (meanTvr * 0.6);
-                const bounceBackPct = avgProgTvr > 0 ? ((avgAdTvr / avgProgTvr) * 100) : 100;
+                const avgProgVal = progRows.length > 0 ? (progRows.reduce((a, b) => a + parseCleanNumber(b[targetKey]), 0) / progRows.length) : meanVal;
+                const avgAdVal = adRows.length > 0 ? (adRows.reduce((a, b) => a + parseCleanNumber(b[targetKey]), 0) / adRows.length) : (meanVal * 0.6);
+                const bounceBackPct = avgProgVal > 0 ? ((avgAdVal / avgProgVal) * 100) : 100;
 
-                // 5. Analisis Emosi Konten vs Rating
+                // 5. Analisis Emosi Konten vs Metrik (TVR / Share / Unit / Reach / Index)
                 const emotionMap = {
-                    'Konflik': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Konflik / Marah', icon: '😡', color: '#f43f5e' },
-                    'Sedih': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Sedih / Melankolis', icon: '😢', color: '#60a5fa' },
-                    'Happy': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Ceria / Romantis', icon: '😊', color: '#34d399' },
-                    'Tegang': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Tegang / Suspense', icon: '😱', color: '#fb923c' },
-                    'Netral': { count: 0, sumTvr: 0, maxTvr: 0, label: 'Netral / Transisi', icon: 'ℹ️', color: '#94a3b8' }
+                    'Konflik': { count: 0, sumVal: 0, maxVal: 0, label: 'Konflik / Marah', icon: '😡', color: '#f43f5e' },
+                    'Sedih': { count: 0, sumVal: 0, maxVal: 0, label: 'Sedih / Melankolis', icon: '😢', color: '#60a5fa' },
+                    'Happy': { count: 0, sumVal: 0, maxVal: 0, label: 'Ceria / Romantis', icon: '😊', color: '#34d399' },
+                    'Tegang': { count: 0, sumVal: 0, maxVal: 0, label: 'Tegang / Suspense', icon: '😱', color: '#fb923c' },
+                    'Netral': { count: 0, sumVal: 0, maxVal: 0, label: 'Netral / Transisi', icon: 'ℹ️', color: '#94a3b8' }
                 };
 
-                // 6. Analisis Pacing Konten
+                // 6. Analisis Pacing Konten (Ritme)
                 const pacingMap = {
-                    'Cepat': { count: 0, sumTvr: 0, label: 'Cepat (Fast)', icon: '⚡', color: '#f59e0b' },
-                    'Sedang': { count: 0, sumTvr: 0, label: 'Sedang (Normal)', icon: '⏱️', color: '#94a3b8' },
-                    'Lambat': { count: 0, sumTvr: 0, label: 'Lambat (Dragging)', icon: '⏳', color: '#c084fc' }
+                    'Cepat': { count: 0, sumVal: 0, label: 'Cepat (Fast)', icon: '⚡', color: '#f59e0b' },
+                    'Sedang': { count: 0, sumVal: 0, label: 'Sedang (Normal)', icon: '⏱️', color: '#94a3b8' },
+                    'Lambat': { count: 0, sumVal: 0, label: 'Lambat (Dragging)', icon: '⏳', color: '#c084fc' }
                 };
 
                 validRows.forEach((r, idx) => {
                     const a = detectRowAnalytics(r, idx);
                     const em = a.emosi || 'Netral';
                     const pc = a.pacing || 'Sedang';
-                    const val = Number(r.tvr);
+                    const val = parseCleanNumber(r[targetKey]);
 
                     if (emotionMap[em]) {
                         emotionMap[em].count++;
-                        emotionMap[em].sumTvr += val;
-                        if (val > emotionMap[em].maxTvr) emotionMap[em].maxTvr = val;
+                        emotionMap[em].sumVal += val;
+                        if (val > emotionMap[em].maxVal) emotionMap[em].maxVal = val;
                     }
                     if (pacingMap[pc]) {
                         pacingMap[pc].count++;
-                        pacingMap[pc].sumTvr += val;
+                        pacingMap[pc].sumVal += val;
                     }
                 });
 
                 const emotionStats = Object.keys(emotionMap).map(k => ({
                     key: k,
                     ...emotionMap[k],
-                    avgTvr: emotionMap[k].count > 0 ? (emotionMap[k].sumTvr / emotionMap[k].count).toFixed(2) : "0.00",
+                    avgVal: emotionMap[k].count > 0 ? formatNielsenNumber(emotionMap[k].sumVal / emotionMap[k].count, isPercentMetric) : "0",
+                    rawAvg: emotionMap[k].count > 0 ? (emotionMap[k].sumVal / emotionMap[k].count) : 0,
                     pctOfTotal: ((emotionMap[k].count / N) * 100).toFixed(0)
-                })).sort((a, b) => Number(b.avgTvr) - Number(a.avgTvr));
+                })).sort((a, b) => b.rawAvg - a.rawAvg);
 
                 const pacingStats = Object.keys(pacingMap).map(k => ({
                     key: k,
                     ...pacingMap[k],
-                    avgTvr: pacingMap[k].count > 0 ? (pacingMap[k].sumTvr / pacingMap[k].count).toFixed(2) : "0.00",
+                    avgVal: pacingMap[k].count > 0 ? formatNielsenNumber(pacingMap[k].sumVal / pacingMap[k].count, isPercentMetric) : "0",
                     pctOfTotal: ((pacingMap[k].count / N) * 100).toFixed(0)
                 }));
 
                 const topEmotion = emotionStats.find(e => e.count > 0);
+                const dropThreshold = targetKey === 'unit' ? (meanVal * 0.05) : (isPercentMetric ? 1.0 : 0.3);
                 const draggingRisks = validRows.filter((r, i) => {
                     const a = detectRowAnalytics(r, i);
-                    const prev = i > 0 ? Number(validRows[i - 1].tvr) : Number(r.tvr);
-                    return a.pacing === 'Lambat' && (Number(r.tvr) - prev) < -0.3;
+                    const prev = i > 0 ? parseCleanNumber(validRows[i - 1][targetKey]) : parseCleanNumber(r[targetKey]);
+                    return a.pacing === 'Lambat' && (parseCleanNumber(r[targetKey]) - prev) < -dropThreshold;
                 });
 
                 return {
                     N,
-                    meanTvr: meanTvr.toFixed(2),
-                    slopeBeta: slopeBeta.toFixed(3),
+                    targetMetric,
+                    targetKey,
+                    targetLabel,
+                    isPercentMetric,
+                    meanVal: formatNielsenNumber(meanVal, isPercentMetric),
+                    meanTvr: formatNielsenNumber(meanVal, isPercentMetric), // backwards compat
+                    slopeBeta: Math.abs(slopeBeta) >= 100 ? formatCompactAxis(slopeBeta) : slopeBeta.toFixed(3),
                     pearsonR: pearsonR.toFixed(2),
-                    stdDev: stdDev.toFixed(2),
+                    stdDev: Math.abs(stdDev) >= 100 ? formatCompactAxis(stdDev) : stdDev.toFixed(2),
                     curveTypology,
-                    avgProgTvr: avgProgTvr.toFixed(2),
-                    avgAdTvr: avgAdTvr.toFixed(2),
+                    avgProgVal: formatNielsenNumber(avgProgVal, isPercentMetric),
+                    avgProgTvr: formatNielsenNumber(avgProgVal, isPercentMetric), // backwards compat
+                    avgAdVal: formatNielsenNumber(avgAdVal, isPercentMetric),
+                    avgAdTvr: formatNielsenNumber(avgAdVal, isPercentMetric), // backwards compat
                     bounceBackPct: Math.round(bounceBackPct),
                     emotionStats,
                     pacingStats,
                     topEmotion,
                     draggingRisks
                 };
-            }, [mbmRows]);
+            }, [mbmRows, chartMetrics, analyticsMetricKey]);
 
-            // Parser Fleksibel untuk Tempel Data Rating & Performa (Attachment 3)
-            // Mendukung: TVR, Share, Reach, Unit, atau hanya 1 kolom data numerik saja
-            const parseAndApplyRatingData = (text) => {
+            // Parser Fleksibel & Dinamis untuk Tempel Data Rating Nielsen Standard: TVR, SHARE, UNIT (1 sd Jutaan), REACH, INDEX
+            // Mendukung: Hanya TVR, Hanya Share, Keduanya, Hanya Unit, Unit + Share, atau format tabel multi-kolom
+            const parseAndApplyRatingData = (text, explicitMode = null) => {
                 if (!text || !text.trim()) {
                     notify("Harap tempelkan data teks rating terlebih dahulu.");
                     return;
                 }
 
+                const currentMode = explicitMode || pasteRatingMode || 'auto';
                 const rawLines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
                 if (rawLines.length === 0) return;
 
-                const splitLine = (l) => {
-                    if (l.includes('\t')) return l.split('\t').map(t => t.trim()).filter(Boolean);
-                    if (l.includes(';')) return l.split(';').map(t => t.trim()).filter(Boolean);
-                    if (l.includes(',')) return l.split(',').map(t => t.trim()).filter(Boolean);
-                    return l.split(/\s{2,}|\t/).map(t => t.trim()).filter(Boolean);
+                const isNumToken = (tok) => {
+                    if (!tok) return false;
+                    const cleanNum = parseCleanNumber(tok);
+                    return !isNaN(cleanNum);
                 };
 
-                const firstTokens = splitLine(rawLines[0]);
+                // Parser baris cerdas: mendukung Tab, Semicolon, Comma, atau Spasi multi/tunggal
+                const splitRowTokens = (line) => {
+                    if (line.includes('\t')) return line.split('\t').map(t => t.trim()).filter(Boolean);
+                    if (line.includes(';')) return line.split(';').map(t => t.trim()).filter(Boolean);
+
+                    // Ekstraksi pola waktu lebih dahulu (contoh: 00:00 - 01:00 atau 14:00:00 - 14:01:00)
+                    let clean = line;
+                    let timeMatch = null;
+                    const timeRegex = /(\d{1,2}:\d{2}(?::\d{2})?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?|\d{1,2}:\d{2}(?::\d{2})?)/;
+                    const tm = clean.match(timeRegex);
+                    if (tm) {
+                        timeMatch = tm[0].trim();
+                        clean = clean.replace(tm[0], ' __TIMETOKEN__ ');
+                    }
+
+                    if (clean.includes(',')) {
+                        const parts = clean.split(',').map(t => t.trim()).filter(Boolean);
+                        // Cek jika koma bukan pemisah desimal
+                        const isDec = parts.length === 2 && isNumToken(parts[0]) && isNumToken(parts[1]) && parts[0].length <= 2;
+                        if (!isDec && parts.length > 1) {
+                            return parts.map(p => p.replace('__TIMETOKEN__', timeMatch).trim()).filter(Boolean);
+                        }
+                    }
+
+                    // Pemisahan berdasarkan spasi
+                    const words = clean.split(/\s+/).map(t => t.trim()).filter(Boolean);
+                    const tokens = [];
+                    let textBuffer = [];
+
+                    words.forEach(w => {
+                        if (w === '__TIMETOKEN__') {
+                            if (textBuffer.length > 0) {
+                                tokens.push(textBuffer.join(' '));
+                                textBuffer = [];
+                            }
+                            tokens.push(timeMatch);
+                        } else if (isNumToken(w)) {
+                            if (textBuffer.length > 0) {
+                                tokens.push(textBuffer.join(' '));
+                                textBuffer = [];
+                            }
+                            tokens.push(w);
+                        } else {
+                            textBuffer.push(w);
+                        }
+                    });
+                    if (textBuffer.length > 0) {
+                        tokens.push(textBuffer.join(' '));
+                    }
+                    return tokens;
+                };
+
+                const firstTokens = splitRowTokens(rawLines[0]);
                 // Deteksi apakah baris 0 adalah Header (Judul Kolom)
                 let isHeader = false;
-                if (firstTokens.length > 0) {
+                if (firstTokens.length > 0 && rawLines.length > 1) {
                     const hasHeaderWord = firstTokens.some(t => {
-                        const low = t.toLowerCase();
-                        return low.includes('waktu') || low.includes('time') || low.includes('menit') ||
+                        const low = String(t).toLowerCase();
+                        return low.includes('waktu') || low.includes('time') || low.includes('menit') || low.includes('jam') ||
                                low.includes('tvr') || low.includes('share') || low.includes('reach') ||
                                low.includes('rating') || low.includes('unit') || low.includes('segmen') ||
-                               low.includes('iklan') || low.includes('audiens') || low.includes('view') ||
-                               low.includes('impression');
+                               low.includes('iklan') || low.includes('audiens') || low.includes('audience') ||
+                               low.includes('penonton') || low.includes('household') || low.includes('view') ||
+                               low.includes('impression') || low.includes('index') || low.includes('idx') || low.includes('rch');
                     });
-                    const allNonNumeric = firstTokens.every(t => isNaN(Number(t.replace('%', ''))));
-                    if (hasHeaderWord || (allNonNumeric && rawLines.length > 1)) {
+                    const allNonNumeric = firstTokens.every(t => !isNumToken(t));
+                    if (hasHeaderWord || allNonNumeric) {
                         isHeader = true;
                     }
                 }
@@ -1432,132 +1596,204 @@
                 let dataLines = rawLines;
                 let colHeaders = [];
                 if (isHeader) {
-                    colHeaders = firstTokens.map(h => h.replace(/[#()]/g, '').trim());
+                    colHeaders = firstTokens.map(h => h.replace(/[#()]/g, '').trim().toLowerCase());
                     dataLines = rawLines.slice(1);
                 }
 
                 if (dataLines.length === 0) {
-                    notify("Tidak ditemukan data angka pada teks yang ditempel.");
+                    notify("Tidak ditemukan baris data pada teks yang ditempel.");
                     return;
                 }
 
-                // Analisis kolom dari baris-baris data
-                const firstDataTokens = splitLine(dataLines[0]);
-                const colTypes = [];
-                let numericColIndex = 0;
-
-                for (let c = 0; c < firstDataTokens.length; c++) {
-                    const headerName = colHeaders[c] || "";
-                    const lowHeader = headerName.toLowerCase();
-                    const sampleToken = firstDataTokens[c];
-
-                    if (lowHeader.includes('waktu') || lowHeader.includes('time') || lowHeader.includes('menit') ||
-                        (/^\d{1,2}:\d{2}/.test(sampleToken) || (sampleToken.includes('-') && /\d/.test(sampleToken)))) {
-                        colTypes.push({ type: 'time', key: 'rentangWaktu' });
-                    } else if (lowHeader.includes('unit') || lowHeader.includes('segmen') || lowHeader.includes('iklan') || lowHeader.includes('kategori')) {
-                        colTypes.push({ type: 'unit', key: 'unit' });
-                    } else {
-                        const sampleNum = Number(sampleToken.replace('%', '').replace(',', '.'));
-                        if (!isNaN(sampleNum)) {
-                            numericColIndex++;
-                            let metricKey = "";
-                            let metricLabel = headerName || "";
-
-                            if (lowHeader.includes('reach')) {
-                                metricKey = 'reach';
-                                metricLabel = metricLabel || 'Reach';
-                            } else if (lowHeader.includes('share')) {
-                                metricKey = 'share';
-                                metricLabel = metricLabel || 'Share (%)';
-                            } else if (lowHeader.includes('tvr') || lowHeader.includes('rating')) {
-                                metricKey = 'tvr';
-                                metricLabel = metricLabel || 'TVR (Rating)';
-                            } else if (headerName) {
-                                metricKey = headerName.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15);
-                            } else {
-                                if (numericColIndex === 1) {
-                                    metricKey = 'tvr';
-                                    metricLabel = 'TVR (Rating)';
-                                } else if (numericColIndex === 2) {
-                                    metricKey = 'share';
-                                    metricLabel = 'Share (%)';
-                                } else if (numericColIndex === 3) {
-                                    metricKey = 'reach';
-                                    metricLabel = 'Reach';
-                                } else {
-                                    metricKey = `metric_${numericColIndex}`;
-                                    metricLabel = `Data #${numericColIndex}`;
-                                }
-                            }
-                            colTypes.push({ type: 'metric', key: metricKey, label: metricLabel });
-                        } else {
-                            colTypes.push({ type: 'unit', key: 'unit' });
-                        }
-                    }
-                }
-
-                // Susun daftar metric baru untuk chartMetrics
-                const palette = ['#ccff00', '#38bdf8', '#c084fc', '#f59e0b', '#34d399', '#f43f5e'];
-                const detectedMetrics = [];
-                colTypes.forEach((col) => {
-                    if (col.type === 'metric') {
-                        if (!detectedMetrics.some(m => m.key === col.key)) {
-                            const isShare = col.key === 'share' || col.label.toLowerCase().includes('share') || col.label.includes('%');
-                            const color = col.key === 'tvr' ? '#ccff00' : (col.key === 'share' ? '#38bdf8' : (col.key === 'reach' ? '#c084fc' : palette[detectedMetrics.length % palette.length]));
-                            detectedMetrics.push({
-                                key: col.key,
-                                label: col.label,
-                                color: color,
-                                active: true,
-                                isPercent: isShare
-                            });
-                        }
-                    }
-                });
-
-                if (detectedMetrics.length > 0) {
-                    setChartMetrics(detectedMetrics);
-                    try { localStorage.setItem('mbm_chart_metrics_v2', JSON.stringify(detectedMetrics)); } catch(e) {}
-                }
-
+                let hasParsedTvr = false;
+                let hasParsedShare = false;
+                let hasParsedUnit = false;
+                let hasParsedReach = false;
+                let hasParsedIndex = false;
                 let appliedCount = 0;
                 const newRows = [...mbmRows];
 
                 dataLines.forEach((line, lineIdx) => {
-                    const tokens = splitLine(line);
+                    const tokens = splitRowTokens(line);
+                    if (tokens.length === 0) return;
+
                     let rowTime = null;
-                    let rowUnit = null;
+                    let rowSegmenLabel = null;
                     const rowMetricVals = {};
+                    const numTokens = [];
 
                     tokens.forEach((tok, tokIdx) => {
-                        const colDef = colTypes[tokIdx];
-                        if (colDef) {
-                            if (colDef.type === 'time') {
-                                rowTime = tok;
-                            } else if (colDef.type === 'unit') {
-                                rowUnit = tok;
-                            } else if (colDef.type === 'metric') {
-                                const num = Number(tok.replace('%', '').replace(',', '.'));
-                                if (!isNaN(num)) {
-                                    rowMetricVals[colDef.key] = num;
-                                }
-                            }
-                        } else {
-                            const num = Number(tok.replace('%', '').replace(',', '.'));
-                            if (!isNaN(num)) {
-                                if (rowMetricVals.tvr === undefined) rowMetricVals.tvr = num;
-                                else if (rowMetricVals.share === undefined) rowMetricVals.share = num;
-                            } else if (!rowUnit) {
-                                rowUnit = tok;
+                        const headerName = (colHeaders[tokIdx] || "").toLowerCase();
+
+                        // 1. Cek token Waktu
+                        if (headerName.includes('waktu') || headerName.includes('time') || headerName.includes('menit') || headerName.includes('jam') ||
+                            /^\d{1,2}:\d{2}/.test(tok) || (tok.includes('-') && /\d/.test(tok) && !isNumToken(tok))) {
+                            if (!rowTime) rowTime = tok;
+                        } 
+                        // 2. Cek token Numerik
+                        else if (isNumToken(tok)) {
+                            numTokens.push({
+                                raw: tok,
+                                val: parseCleanNumber(tok),
+                                isPercent: tok.includes('%') || headerName.includes('%') || headerName.includes('share') || headerName.includes('reach'),
+                                header: headerName
+                            });
+                        } 
+                        // 3. Token teks non-numerik (nama segmen / label iklan)
+                        else {
+                            if (!rowSegmenLabel) {
+                                rowSegmenLabel = tok;
                             }
                         }
                     });
 
+                    // Pemetaan Berdasarkan Kolom Header Jika Ada
+                    if (colHeaders.length > 0) {
+                        tokens.forEach((tok, tokIdx) => {
+                            const headerName = (colHeaders[tokIdx] || "").toLowerCase();
+                            if (headerName.includes('waktu') || headerName.includes('time') || headerName.includes('menit') || headerName.includes('jam')) {
+                                if (!rowTime) rowTime = tok;
+                            } else if (headerName.includes('tvr') || headerName.includes('rating') || headerName.includes('rate')) {
+                                rowMetricVals.tvr = parseCleanNumber(tok);
+                                hasParsedTvr = true;
+                            } else if (headerName.includes('share') || headerName.includes('shr') || (headerName.includes('%') && !headerName.includes('reach'))) {
+                                rowMetricVals.share = parseCleanNumber(tok);
+                                hasParsedShare = true;
+                            } else if (headerName.includes('unit') || headerName.includes('audiens') || headerName.includes('audience') || headerName.includes('penonton') || headerName.includes('household') || headerName.includes('viewers')) {
+                                rowMetricVals.unit = parseCleanNumber(tok);
+                                hasParsedUnit = true;
+                            } else if (headerName.includes('reach') || headerName.includes('rch')) {
+                                rowMetricVals.reach = parseCleanNumber(tok);
+                                hasParsedReach = true;
+                            } else if (headerName.includes('index') || headerName.includes('idx') || headerName.includes('aff')) {
+                                rowMetricVals.index = parseCleanNumber(tok);
+                                hasParsedIndex = true;
+                            } else if (headerName.includes('segmen') || headerName.includes('iklan') || headerName.includes('program') || headerName.includes('label')) {
+                                rowSegmenLabel = tok;
+                            }
+                        });
+                    } else {
+                        // Pemetaan Angka ke Metrik Nielsen (TVR, Share, Unit, Reach, Index) sesuai Mode Input
+                        if (currentMode === 'unit') {
+                            if (numTokens.length > 0) {
+                                rowMetricVals.unit = numTokens[0].val;
+                                hasParsedUnit = true;
+                            } else if (tokens.length > 0) {
+                                rowSegmenLabel = tokens.join(' ');
+                            }
+                        } else if (currentMode === 'tvr') {
+                            if (numTokens.length > 0) {
+                                rowMetricVals.tvr = numTokens[0].val;
+                                hasParsedTvr = true;
+                            }
+                        } else if (currentMode === 'share') {
+                            if (numTokens.length > 0) {
+                                rowMetricVals.share = numTokens[0].val;
+                                hasParsedShare = true;
+                            }
+                        } else if (currentMode === 'both') {
+                            if (numTokens.length >= 2) {
+                                rowMetricVals.tvr = numTokens[0].val;
+                                rowMetricVals.share = numTokens[1].val;
+                                hasParsedTvr = true;
+                                hasParsedShare = true;
+                                if (numTokens.length >= 3) {
+                                    rowMetricVals.unit = numTokens[2].val;
+                                    hasParsedUnit = true;
+                                }
+                            } else if (numTokens.length === 1) {
+                                rowMetricVals.tvr = numTokens[0].val;
+                                hasParsedTvr = true;
+                            }
+                        } else {
+                            // MODE AUTO-DETEKSI PINTAR
+                            if (numTokens.length === 1) {
+                                const nt = numTokens[0];
+                                if (nt.isPercent || nt.raw.includes('%')) {
+                                    rowMetricVals.share = nt.val;
+                                    hasParsedShare = true;
+                                } else if (nt.val > 100 || (nt.raw.includes('.') && (nt.raw.match(/\./g) || []).length > 1) || (nt.raw.includes(',') && (nt.raw.match(/,/g) || []).length > 1)) {
+                                    // Nilai ribuan atau jutaan -> pasti angka UNIT Nielsen (Audience Count)
+                                    rowMetricVals.unit = nt.val;
+                                    hasParsedUnit = true;
+                                } else if (nt.val > 25) {
+                                    rowMetricVals.share = nt.val;
+                                    hasParsedShare = true;
+                                } else {
+                                    rowMetricVals.tvr = nt.val;
+                                    hasParsedTvr = true;
+                                }
+                            } else if (numTokens.length === 2) {
+                                const n0 = numTokens[0];
+                                const n1 = numTokens[1];
+                                if (n1.val > 100) {
+                                    // Kolom kedua adalah Unit (angka audiens jutaan/ribuan)
+                                    if (n0.isPercent || n0.val > 15) {
+                                        rowMetricVals.share = n0.val;
+                                        hasParsedShare = true;
+                                    } else {
+                                        rowMetricVals.tvr = n0.val;
+                                        hasParsedTvr = true;
+                                    }
+                                    rowMetricVals.unit = n1.val;
+                                    hasParsedUnit = true;
+                                } else if (n0.isPercent) {
+                                    rowMetricVals.share = n0.val;
+                                    rowMetricVals.tvr = n1.val;
+                                    hasParsedShare = true;
+                                    hasParsedTvr = true;
+                                } else if (n1.isPercent) {
+                                    rowMetricVals.tvr = n0.val;
+                                    rowMetricVals.share = n1.val;
+                                    hasParsedTvr = true;
+                                    hasParsedShare = true;
+                                } else {
+                                    // Default urutan broadcast: Kolom 1 = TVR, Kolom 2 = Share
+                                    rowMetricVals.tvr = n0.val;
+                                    rowMetricVals.share = n1.val;
+                                    hasParsedTvr = true;
+                                    hasParsedShare = true;
+                                }
+                            } else if (numTokens.length === 3) {
+                                // Standar Nielsen Broadcast 3 Kolom: TVR, SHARE, UNIT
+                                rowMetricVals.tvr = numTokens[0].val;
+                                rowMetricVals.share = numTokens[1].val;
+                                rowMetricVals.unit = numTokens[2].val;
+                                hasParsedTvr = true;
+                                hasParsedShare = true;
+                                hasParsedUnit = true;
+                            } else if (numTokens.length === 4) {
+                                // 4 Kolom: TVR, SHARE, UNIT, REACH
+                                rowMetricVals.tvr = numTokens[0].val;
+                                rowMetricVals.share = numTokens[1].val;
+                                rowMetricVals.unit = numTokens[2].val;
+                                rowMetricVals.reach = numTokens[3].val;
+                                hasParsedTvr = true;
+                                hasParsedShare = true;
+                                hasParsedUnit = true;
+                                hasParsedReach = true;
+                            } else if (numTokens.length >= 5) {
+                                // Standar Nielsen TAM 5 Kolom: TVR, SHARE, UNIT, REACH, INDEX
+                                rowMetricVals.tvr = numTokens[0].val;
+                                rowMetricVals.share = numTokens[1].val;
+                                rowMetricVals.unit = numTokens[2].val;
+                                rowMetricVals.reach = numTokens[3].val;
+                                rowMetricVals.index = numTokens[4].val;
+                                hasParsedTvr = true;
+                                hasParsedShare = true;
+                                hasParsedUnit = true;
+                                hasParsedReach = true;
+                                hasParsedIndex = true;
+                            }
+                        }
+                    }
+
+                    // Terapkan ke baris MBM
                     if (lineIdx < newRows.length) {
                         newRows[lineIdx] = {
                             ...newRows[lineIdx],
                             ...(rowTime ? { rentangWaktu: rowTime } : {}),
-                            ...(rowUnit ? { unit: rowUnit } : {}),
+                            ...(rowSegmenLabel ? { deskripsi: rowSegmenLabel } : {}),
                             ...rowMetricVals
                         };
                         appliedCount++;
@@ -1567,21 +1803,64 @@
                         newRows.push({
                             id: Date.now() + lineIdx,
                             rentangWaktu: rowTime || `${formatTime(lastStart)} - ${formatTime(lastEnd)}`,
-                            deskripsi: `Segmen tayangan menit ke-${lineIdx + 1}`,
-                            unit: rowUnit || "Segmen",
+                            deskripsi: rowSegmenLabel || `Segmen tayangan menit ke-${lineIdx + 1}`,
                             ...rowMetricVals
                         });
                         appliedCount++;
                     }
                 });
 
+                // Sinkronkan Aktivasi Metrik Kurva di Grafik MBM
+                let updatedChartMetrics = [...chartMetrics];
+                const parsedKeys = [];
+                if (hasParsedTvr) parsedKeys.push('tvr');
+                if (hasParsedShare) parsedKeys.push('share');
+                if (hasParsedUnit) parsedKeys.push('unit');
+                if (hasParsedReach) parsedKeys.push('reach');
+                if (hasParsedIndex) parsedKeys.push('index');
+
+                if (parsedKeys.length > 0) {
+                    updatedChartMetrics = updatedChartMetrics.map(m => {
+                        if (parsedKeys.includes(m.key)) {
+                            return { ...m, active: true };
+                        } else if (parsedKeys.length === 1) {
+                            // Jika hanya paste 1 metrik spesifik, nonaktifkan metrik lain agar grafik fokus
+                            return { ...m, active: false };
+                        }
+                        return m;
+                    });
+
+                    // Set target metrik Drawer Analisis Statistik
+                    if (parsedKeys.length === 1) {
+                        setAnalyticsMetricKey(parsedKeys[0]);
+                    } else if (hasParsedShare && !hasParsedTvr) {
+                        setAnalyticsMetricKey('share');
+                    } else if (hasParsedUnit && !hasParsedTvr && !hasParsedShare) {
+                        setAnalyticsMetricKey('unit');
+                    } else {
+                        setAnalyticsMetricKey(parsedKeys[0]);
+                    }
+                }
+
+                setChartMetrics(updatedChartMetrics);
+                try { localStorage.setItem('mbm_chart_metrics_v2', JSON.stringify(updatedChartMetrics)); } catch(e) {}
+
                 setMbmRows(newRows);
                 try { localStorage.setItem('mbm_rows_v3', JSON.stringify(newRows)); } catch(e) {}
+
                 setShowRatingChart(true);
                 setShowRatingModal(false);
                 setPastedRatingText("");
-                const metricNames = detectedMetrics.map(m => m.label).join(', ');
-                notify(`Berhasil menerapkan data (${metricNames || 'Rating'}) pada ${appliedCount} menit MBM!`);
+
+                let appliedDesc = [];
+                if (hasParsedTvr) appliedDesc.push('TVR');
+                if (hasParsedShare) appliedDesc.push('Share (%)');
+                if (hasParsedUnit) appliedDesc.push('Unit (Penonton)');
+                if (hasParsedReach) appliedDesc.push('Reach');
+                if (hasParsedIndex) appliedDesc.push('Index');
+                if (appliedDesc.length === 0) appliedDesc.push('Data Rating');
+
+                notify(`Berhasil menerapkan ${appliedDesc.join(' + ')} pada ${appliedCount} menit MBM! Grafik MBM otomatis diperbarui.`);
             };
 
             // ==========================================
@@ -4065,14 +4344,14 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                     </div>
                                     <div>
                                         <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
-                                            Unit / Segmen
+                                            Label / Kategori Adegan (Segmen / Iklan)
                                         </label>
                                         <input 
                                             type="text"
-                                            value={editingRow.unit || ""}
-                                            onChange={(e) => setEditingRow({ ...editingRow, unit: e.target.value })}
+                                            value={editingRow.segmenLabel || (isNaN(parseCleanNumber(editingRow.unit)) ? editingRow.unit : "") || ""}
+                                            onChange={(e) => setEditingRow({ ...editingRow, segmenLabel: e.target.value })}
                                             className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400"
-                                            placeholder="Segmen 1 / Break Iklan"
+                                            placeholder="Segmen 1 / Break Iklan 1"
                                         />
                                     </div>
                                 </div>
@@ -4084,7 +4363,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                         </label>
                                         <input 
                                             type="number"
-                                            step="0.1"
+                                            step="0.01"
                                             value={editingRow.tvr !== undefined && editingRow.tvr !== null ? editingRow.tvr : ""}
                                             onChange={(e) => setEditingRow({ ...editingRow, tvr: e.target.value })}
                                             className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
@@ -4097,26 +4376,26 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                         </label>
                                         <input 
                                             type="number"
-                                            step="0.1"
+                                            step="0.01"
                                             value={editingRow.share !== undefined && editingRow.share !== null ? editingRow.share : ""}
                                             onChange={(e) => setEditingRow({ ...editingRow, share: e.target.value })}
                                             className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
                                             placeholder="14.5"
                                         />
                                     </div>
-                                    {/* Input Fleksibel untuk Metrik Lain (misal: Reach) */}
+                                    {/* Input Fleksibel untuk Metrik Nielsen Lainnya (Unit Penonton, Reach, Index) */}
                                     {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share').map(m => (
                                         <div key={m.key}>
                                             <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block mb-1">
                                                 {m.label}
                                             </label>
                                             <input 
-                                                type="number"
-                                                step="0.1"
+                                                type={m.key === 'unit' ? 'text' : 'number'}
+                                                step="any"
                                                 value={editingRow[m.key] !== undefined && editingRow[m.key] !== null ? editingRow[m.key] : ""}
                                                 onChange={(e) => setEditingRow({ ...editingRow, [m.key]: e.target.value })}
                                                 className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-black text-slate-900 outline-none focus:bg-white focus:border-slate-400"
-                                                placeholder="0.0"
+                                                placeholder={m.key === 'unit' ? '1.250.000' : '0.0'}
                                             />
                                         </div>
                                     ))}
@@ -4245,13 +4524,48 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 text-slate-600 text-xs space-y-1.5">
                                     <p className="font-bold text-slate-800 flex items-center gap-1.5">
                                         <i className="fa-solid fa-circle-info text-lime-700"></i>
-                                        <span>Format Fleksibel (Auto-Deteksi Kolom & Header):</span>
+                                        <span>Format Fleksibel & Dinamis (Auto-Deteksi Kolom & Header):</span>
                                     </p>
                                     <p className="text-[11px] text-slate-600 leading-relaxed pl-4">
-                                        • Anda bebas paste kolom apa saja (misal hanya 1 kolom <strong>Reach</strong>, atau <strong>TVR + Share</strong>, atau nama metrik kustom lainnya).<br />
-                                        • Jika menyertakan baris header (misal: <em>Waktu, Reach, Unit</em>), nama metrik akan otomatis dinamai sesuai header tersebut.<br />
-                                        • Jika hanya input 1 metrik, grafik otomatis hanya menampilkan 1 kurva grafik.
+                                        • <strong>Standar Nielsen 5 Pilar:</strong> Mendukung <strong>TVR</strong>, <strong>SHARE (%)</strong>, <strong>UNIT (Angka Penonton 1 digit s/d Jutaan)</strong>, <strong>REACH (%)</strong>, dan <strong>INDEX</strong>.<br />
+                                        • <strong>Bebas paste apa saja:</strong> Anda bebas paste hanya TVR saja, Share saja, angka Unit saja, TVR + Share, maupun tabel lengkap Nielsen.<br />
+                                        • <strong>Multi-Skala Otomatis:</strong> Kurva Unit (angka jutaan) dan TVR (angka kecil) diskalakan secara independen di grafik MBM sehingga kedua kurva tampak proporsional dan tidak saling mendatarkan.
                                     </p>
+                                </div>
+
+                                {/* Pilihan Mode Kolom Tempel Cepat */}
+                                <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                            MODE KOLOM DATA YANG DITEMPEL:
+                                        </label>
+                                        <span className="text-[9px] text-indigo-600 font-bold">
+                                            {pasteRatingMode === 'auto' ? 'Deteksi Otomatis Aktif' : `Mode Terpilih: ${pasteRatingMode.toUpperCase()}`}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+                                        {[
+                                            { id: 'auto', label: '🤖 Auto-Deteksi', desc: 'Deteksi otomatis berdasarkan tanda %, desimal, dan ribuan/jutaan' },
+                                            { id: 'both', label: 'TVR + Share', desc: 'Kolom 1: TVR, Kolom 2: Share' },
+                                            { id: 'tvr', label: 'Hanya TVR', desc: 'Hanya angka TVR (Rating Poin)' },
+                                            { id: 'share', label: 'Hanya Share (%)', desc: 'Hanya angka Audience Share (%)' },
+                                            { id: 'unit', label: 'Hanya Unit (Penonton)', desc: 'Angka audiens unit (1 angka s/d jutaan)' }
+                                        ].map(m => (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setPasteRatingMode(m.id)}
+                                                className={`py-1.5 px-2 rounded-xl text-[10px] font-black transition-all border text-center ${
+                                                    pasteRatingMode === m.id
+                                                        ? 'bg-obsidian text-neon border-obsidian shadow-sm scale-[1.02] ring-1 ring-neon/40'
+                                                        : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900'
+                                                }`}
+                                                title={m.desc}
+                                            >
+                                                {m.label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
 
                                 <div>
@@ -4263,24 +4577,62 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             <button 
                                                 type="button"
                                                 onClick={() => {
-                                                    const sampleSingle = `Waktu\tReach\n00:00 - 01:00\t14.8\n01:00 - 02:00\t15.2\n02:00 - 03:00\t16.9\n03:00 - 04:00\t9.4\n04:00 - 05:00\t17.5\n05:00 - 06:00\t18.1\n06:00 - 07:00\t17.0\n07:00 - 08:00\t10.2\n08:00 - 09:00\t18.6\n09:00 - 10:00\t16.4`;
-                                                    setPastedRatingText(sampleSingle);
-                                                    notify("Contoh 1 data chart (Hanya Reach) dimuat!");
+                                                    setPasteRatingMode('tvr');
+                                                    const sampleTvr = `2.4\n2.7\n3.1\n1.8\n3.4\n3.7\n3.5\n1.9\n3.6\n3.2`;
+                                                    setPastedRatingText(sampleTvr);
+                                                    notify("Contoh 1 kolom (Hanya TVR) dimuat!");
                                                 }}
-                                                className="text-[10px] font-bold text-sky-700 hover:text-sky-900 bg-sky-100 px-2 py-0.5 rounded-md hover:underline"
+                                                className="text-[10px] font-bold text-emerald-800 hover:text-emerald-900 bg-emerald-100 px-2 py-0.5 rounded-md hover:underline"
                                             >
-                                                + 1 Kolom (Reach)
+                                                + TVR Saja
                                             </button>
                                             <button 
                                                 type="button"
                                                 onClick={() => {
-                                                    const sampleText = `00:00 - 01:00\t2.4\t12.8\tSegmen 1\n01:00 - 02:00\t2.7\t14.2\tSegmen 1\n02:00 - 03:00\t3.1\t16.5\tSegmen 1\n03:00 - 04:00\t1.8\t9.1\tBreak Iklan 1\n04:00 - 05:00\t3.4\t17.8\tSegmen 2\n05:00 - 06:00\t3.7\t18.9\tSegmen 2\n06:00 - 07:00\t3.5\t17.4\tSegmen 2\n07:00 - 08:00\t1.9\t9.5\tBreak Iklan 2\n08:00 - 09:00\t3.6\t18.2\tSegmen 3\n09:00 - 10:00\t3.2\t16.0\tSegmen 3`;
-                                                    setPastedRatingText(sampleText);
-                                                    notify("Contoh data rating Nielsen (TVR + Share) dimuat!");
+                                                    setPasteRatingMode('share');
+                                                    const sampleShare = `12.8%\n14.2%\n16.5%\n9.1%\n17.8%\n18.9%\n17.4%\n9.5%\n18.2%\n16.0%`;
+                                                    setPastedRatingText(sampleShare);
+                                                    notify("Contoh 1 kolom (Hanya Share %) dimuat!");
                                                 }}
-                                                className="text-[10px] font-bold text-lime-700 hover:text-lime-900 bg-limePill px-2 py-0.5 rounded-md hover:underline"
+                                                className="text-[10px] font-bold text-sky-800 hover:text-sky-900 bg-sky-100 px-2 py-0.5 rounded-md hover:underline"
+                                            >
+                                                + Share Saja (%)
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    setPasteRatingMode('both');
+                                                    const sampleText = `00:00 - 01:00\t2.4\t12.8\n01:00 - 02:00\t2.7\t14.2\n02:00 - 03:00\t3.1\t16.5\n03:00 - 04:00\t1.8\t9.1\n04:00 - 05:00\t3.4\t17.8\n05:00 - 06:00\t3.7\t18.9\n06:00 - 07:00\t3.5\t17.4\n07:00 - 08:00\t1.9\t9.5\n08:00 - 09:00\t3.6\t18.2\n09:00 - 10:00\t3.2\t16.0`;
+                                                    setPastedRatingText(sampleText);
+                                                    notify("Contoh 2 kolom (TVR & Share) dimuat!");
+                                                }}
+                                                className="text-[10px] font-bold text-lime-800 hover:text-lime-900 bg-limePill px-2 py-0.5 rounded-md hover:underline"
                                             >
                                                 + TVR & Share
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    setPasteRatingMode('unit');
+                                                    const sampleUnit = `1.250.000\n1.320.000\n1.450.000\n890.000\n1.520.000\n1.610.000\n1.560.000\n920.000\n1.590.000\n1.480.000`;
+                                                    setPastedRatingText(sampleUnit);
+                                                    notify("Contoh 1 kolom Angka Unit (Jutaan Penonton) dimuat!");
+                                                }}
+                                                className="text-[10px] font-bold text-purple-800 hover:text-purple-900 bg-purple-100 px-2 py-0.5 rounded-md hover:underline"
+                                            >
+                                                + Unit Saja (Angka)
+                                            </button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => {
+                                                    setPasteRatingMode('auto');
+                                                    const sampleNielsen = `Waktu\tTVR\tShare\tUnit\tReach\tIndex\n00:00 - 01:00\t2.4\t12.8\t1.250.000\t8.5\t105\n01:00 - 02:00\t2.7\t14.2\t1.320.000\t9.1\t108\n02:00 - 03:00\t3.1\t16.5\t1.450.000\t10.2\t112\n03:00 - 04:00\t1.8\t9.1\t890.000\t6.4\t88\n04:00 - 05:00\t3.4\t17.8\t1.520.000\t11.5\t118\n05:00 - 06:00\t3.7\t18.9\t1.610.000\t12.4\t122\n06:00 - 07:00\t3.5\t17.4\t1.560.000\t11.8\t119\n07:00 - 08:00\t1.9\t9.5\t920.000\t6.8\t90\n08:00 - 09:00\t3.6\t18.2\t1.590.000\t12.0\t120\n09:00 - 10:00\t3.2\t16.0\t1.480.000\t10.8\t114`;
+                                                    setPastedRatingText(sampleNielsen);
+                                                    notify("Contoh lengkap Nielsen 5 Metrik dimuat!");
+                                                }}
+                                                className="text-[10px] font-bold text-amber-800 hover:text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md hover:underline"
+                                            >
+                                                + Nielsen Lengkap
                                             </button>
                                         </div>
                                     </div>
@@ -4288,7 +4640,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                         value={pastedRatingText}
                                         onChange={(e) => setPastedRatingText(e.target.value)}
                                         rows={8}
-                                        placeholder={"Tempel data Excel di sini...\nContoh (Hanya 1 Kolom):\n00:00 - 01:00\t14.8\n01:00 - 02:00\t15.2\n\nAtau dengan judul header:\nWaktu\tReach\tShare\tUnit\n14:00:00 - 14:01:00\t13.5\t58.0\tSegmen 1"}
+                                        placeholder={"Tempel data Excel di sini...\nContoh (Hanya Unit - Jutaan Penonton):\n1.250.000\n1.320.000\n1.450.000\n\nContoh (Hanya Share):\n12.8%\n14.2%\n16.5%\n\nContoh (TVR Saja):\n2.4\n2.7\n3.1\n\nContoh (TVR + Share + Unit):\n2.4\t12.8\t1.250.000\n2.7\t14.2\t1.320.000\n\nContoh Nielsen Standard (Waktu + TVR + Share + Unit + Reach + Index):\n00:00 - 01:00\t2.4\t12.8\t1.250.000\t8.5\t105"}
                                         className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl p-3 text-xs font-mono font-medium text-slate-800 outline-none focus:bg-white focus:border-slate-400 resize-y leading-relaxed shadow-inner"
                                     />
                                 </div>
@@ -4304,7 +4656,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 </button>
                                 <button 
                                     type="button"
-                                    onClick={() => parseAndApplyRatingData(pastedRatingText)}
+                                    onClick={() => parseAndApplyRatingData(pastedRatingText, pasteRatingMode)}
                                     className="px-5 py-2.5 rounded-xl text-xs font-black bg-neon text-obsidian hover:bg-neon-dark transition-all shadow-md active:scale-95 flex items-center gap-1.5"
                                 >
                                     <i className="fa-solid fa-check text-xs"></i>
@@ -4330,19 +4682,17 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                 const plotW = chartWidth - padL - padR;
                 const plotH = Math.max(16, chartHeight - padT - padB);
 
-                // Metrik Aktif & Skala Axis Otomatis (Attachment 3 & 4)
+                // Metrik Aktif & Multi-Skala Independen per Metrik (Attachment 3 & 4)
                 // "axis automatisasi ketinggiannya mengikuti matrix yang paling tinggi dan aktif"
+                // Menggunakan skala independen per metrik agar angka UNIT jutaan tidak mendatarkan kurva TVR/Share!
                 const activeMetrics = chartMetrics.filter(m => m.active);
-                let highestActiveVal = 1.0;
-                if (activeMetrics.length > 0) {
-                    activeMetrics.forEach(m => {
-                        const mMax = Math.max(0, ...mbmRows.map(r => Number(r[m.key]) || 0));
-                        if (mMax > highestActiveVal) highestActiveVal = mMax;
-                    });
-                } else {
-                    highestActiveVal = 10.0;
-                }
-                const axisMax = Math.max(1.0, highestActiveVal * 1.15);
+
+                const metricScaleMap = {};
+                chartMetrics.forEach(m => {
+                    const vals = mbmRows.map(r => parseCleanNumber(r[m.key])).filter(v => !isNaN(v) && v > 0);
+                    const max = vals.length > 0 ? Math.max(...vals) : 1.0;
+                    metricScaleMap[m.key] = Math.max(1.0, max * 1.15);
+                });
 
                 const points = mbmRows.map((r, i) => {
                     const parts = (r.rentangWaktu || "").split('-');
@@ -4351,23 +4701,25 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                     const sMid = (sStart + sEnd) / 2;
                     const x = padL + (i / Math.max(1, mbmRows.length - 1)) * plotW;
 
-                    // Koordinat Y untuk setiap metrik terdaftar
+                    // Koordinat Y untuk setiap metrik terdaftar menggunakan skala masing-masing
                     const metricCoords = {};
                     chartMetrics.forEach(m => {
-                        const val = Number(r[m.key]) || 0;
-                        const y = (padT + plotH) - (val / axisMax) * plotH;
-                        metricCoords[m.key] = { val, y };
+                        const val = parseCleanNumber(r[m.key]);
+                        const numVal = isNaN(val) ? 0 : val;
+                        const axisMax = metricScaleMap[m.key] || 10.0;
+                        const y = (padT + plotH) - (numVal / axisMax) * plotH;
+                        metricCoords[m.key] = { val: numVal, y, axisMax };
                     });
 
-                    const tvrNum = Number(r.tvr) || (metricCoords['tvr'] ? metricCoords['tvr'].val : 0);
-                    const shareNum = Number(r.share) || (metricCoords['share'] ? metricCoords['share'].val : 0);
-                    const yTvr = metricCoords['tvr'] ? metricCoords['tvr'].y : ((padT + plotH) - (tvrNum / axisMax) * plotH);
-                    const yShare = metricCoords['share'] ? metricCoords['share'].y : ((padT + plotH) - (shareNum / axisMax) * plotH);
+                    const tvrNum = parseCleanNumber(r.tvr) || (metricCoords['tvr'] ? metricCoords['tvr'].val : 0);
+                    const shareNum = parseCleanNumber(r.share) || (metricCoords['share'] ? metricCoords['share'].val : 0);
+                    const yTvr = metricCoords['tvr'] ? metricCoords['tvr'].y : (padT + plotH);
+                    const yShare = metricCoords['share'] ? metricCoords['share'].y : (padT + plotH);
 
                     // Delta kenaikan/penurunan pada metrik pertama yang aktif
                     const primaryKey = activeMetrics.length > 0 ? activeMetrics[0].key : 'tvr';
-                    const curPrimaryVal = Number(r[primaryKey]) || 0;
-                    const prevPrimaryVal = i > 0 ? (Number(mbmRows[i - 1][primaryKey]) || 0) : null;
+                    const curPrimaryVal = parseCleanNumber(r[primaryKey]) || 0;
+                    const prevPrimaryVal = i > 0 ? (parseCleanNumber(mbmRows[i - 1][primaryKey]) || 0) : null;
                     let delta = null;
                     let pct = null;
                     if (prevPrimaryVal !== null && prevPrimaryVal > 0) {
@@ -4540,18 +4892,19 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                         <div className="flex-shrink-0 flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-white/10 border border-white/20 text-[11px] font-bold text-white shadow-inner">
                                             <span className="w-2 h-2 rounded-full bg-neon animate-pulse shadow-[0_0_8px_#ccff00]"></span>
                                             <span className="text-white/60 text-[10px]">{t("activeMinute")} ({formatTime(currentTime)}):</span>
-                                            {showChartTvr && (
-                                                <span className="text-neon font-black font-mono">
-                                                    TVR {activePoint?.tvrNum !== undefined ? activePoint.tvrNum.toFixed(1) : '-'}
-                                                </span>
-                                            )}
-                                            {showChartTvr && showChartShare && <span className="text-white/30">•</span>}
-                                            {showChartShare && (
-                                                <span className="text-sky-300 font-black font-mono">
-                                                    Share {activePoint?.shareNum !== undefined ? activePoint.shareNum + '%' : '-'}
-                                                </span>
-                                            )}
-                                            {activePoint?.unit && (
+                                            {activeMetrics.map((m, mIdx) => {
+                                                const val = activePoint?.metricCoords[m.key]?.val ?? parseCleanNumber(activePoint?.[m.key]);
+                                                if (isNaN(val)) return null;
+                                                return (
+                                                    <React.Fragment key={m.key}>
+                                                        {mIdx > 0 && <span className="text-white/30">•</span>}
+                                                        <span className="font-black font-mono" style={{ color: m.color }}>
+                                                            {m.label.split(' ')[0]} {formatNielsenNumber(val, m.isPercent)}
+                                                        </span>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                            {activePoint?.unit && isNaN(parseCleanNumber(activePoint.unit)) && (
                                                 <span className="text-[9px] text-white/50 px-1 py-0.2 bg-white/10 rounded ml-1 border border-white/10">
                                                     {activePoint.unit}
                                                 </span>
@@ -4575,20 +4928,21 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                 ? "bg-neon/20 border border-neon text-white font-black shadow-[0_0_10px_rgba(204,255,0,0.35)] scale-105" 
                                                                 : "bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 hover:text-white"
                                                         )}
-                                                        title={`Lompat ke ${p.rentangWaktu || ('Menit ' + (idx + 1))}\nTVR: ${p.tvrNum.toFixed(1)}\nShare: ${p.shareNum}%\nDeskripsi: ${p.deskripsi || '-'}`}
+                                                        title={`Lompat ke ${p.rentangWaktu || ('Menit ' + (idx + 1))}\nDeskripsi: ${p.deskripsi || '-'}`}
                                                     >
                                                         <span className="text-white/40 text-[9px] font-sans">M{idx + 1}</span>
-                                                        {showChartTvr && (
-                                                            <span className={isActive ? "text-neon font-black" : "text-neon/90 font-bold"}>
-                                                                {p.tvrNum.toFixed(1)}
-                                                            </span>
-                                                        )}
-                                                        {showChartTvr && showChartShare && <span className="text-white/20">/</span>}
-                                                        {showChartShare && (
-                                                            <span className={isActive ? "text-sky-300 font-black" : "text-sky-400 font-bold"}>
-                                                                {p.shareNum}%
-                                                            </span>
-                                                        )}
+                                                        {activeMetrics.map((m, mIdx) => {
+                                                            const val = p.metricCoords[m.key]?.val ?? parseCleanNumber(p[m.key]);
+                                                            if (isNaN(val)) return null;
+                                                            return (
+                                                                <React.Fragment key={m.key}>
+                                                                    {mIdx > 0 && <span className="text-white/20">/</span>}
+                                                                    <span className={isActive ? "font-black" : "font-bold"} style={{ color: m.color }}>
+                                                                        {formatCompactAxis(val, m.isPercent)}
+                                                                    </span>
+                                                                </React.Fragment>
+                                                            );
+                                                        })}
                                                     </button>
                                                 );
                                             })}
@@ -4599,22 +4953,27 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
                                     {ratingStats && (
                                         <div className="flex items-center gap-1.5 flex-wrap">
-                                            {showChartTvr && (
-                                                <div className="bg-neon/15 border border-neon/40 text-neon text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1.5">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-neon animate-pulse"></span>
-                                                    <span>TVR: Avg {ratingStats.avgTvr}</span>
-                                                    <span className="text-white/30">•</span>
-                                                    <span>Peak {ratingStats.peakTvr}</span>
-                                                </div>
-                                            )}
-                                            {showChartShare && (
-                                                <div className="bg-sky-500/15 border border-sky-400/40 text-sky-300 text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1.5">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
-                                                    <span>Share: Avg {ratingStats.avgShare}%</span>
-                                                    <span className="text-white/30">•</span>
-                                                    <span>Peak {ratingStats.peakShare}%</span>
-                                                </div>
-                                            )}
+                                            {activeMetrics.map(m => {
+                                                const stat = ratingStats[m.key];
+                                                if (!stat) return null;
+                                                return (
+                                                    <div 
+                                                        key={m.key} 
+                                                        className="text-[10px] font-black px-2.5 py-0.5 rounded-full shadow-sm flex items-center gap-1.5"
+                                                        style={{
+                                                            backgroundColor: `${m.color}20`,
+                                                            borderColor: `${m.color}60`,
+                                                            color: m.color,
+                                                            borderWidth: '1px'
+                                                        }}
+                                                    >
+                                                        <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: m.color }}></span>
+                                                        <span>{m.label.split(' ')[0]}: Avg {stat.avg}</span>
+                                                        <span className="text-white/30">•</span>
+                                                        <span>Peak {stat.peak}</span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     )}
 
@@ -4643,29 +5002,59 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                             {/* Drawer Analisis Statistik */}
                             {showAnalyticsDrawer && statisticalAnalytics && (
                                 <div className="mb-2 p-2.5 sm:p-3 rounded-2xl bg-slate-900/95 border border-white/15 backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-                                    <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
+                                    <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10 flex-wrap gap-2">
                                         <div className="flex items-center gap-2">
                                             <span className="flex items-center justify-center w-6 h-6 rounded-lg bg-neon/15 text-neon border border-neon/30 text-xs">
                                                 <i className="fa-solid fa-chart-line"></i>
                                             </span>
                                             <div>
-                                                <h4 className="text-xs font-black text-white tracking-wide flex items-center gap-2">
-                                                    Analisis Statistik & Tipologi Bentuk Kurva Penyiaran
+                                                <h4 className="text-xs font-black text-white tracking-wide flex items-center gap-2 flex-wrap">
+                                                    <span>Analisis Statistik & Tipologi Bentuk Kurva Penyiaran</span>
                                                     <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-neon/15 text-neon border border-neon/30 font-mono">
                                                         N = {statisticalAnalytics.N} Menit
+                                                    </span>
+                                                    <span className="text-[9px] font-black px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30 uppercase tracking-wider font-mono">
+                                                        Metrik: {statisticalAnalytics.targetLabel}
                                                     </span>
                                                 </h4>
                                                 <p className="text-[10px] text-slate-400">Hubungan regresi linear, volatilitas audiens, dinamika emosi cerita, dan retensi jeda komersial.</p>
                                             </div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={() => setShowAnalyticsDrawer(false)}
-                                            className="w-5 h-5 rounded-md bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center text-xs"
-                                            title="Tutup panel analisis"
-                                        >
-                                            <i className="fa-solid fa-xmark"></i>
-                                        </button>
+
+                                        <div className="flex items-center gap-2">
+                                            {/* Selector Tab Pemilih Metrik Analisis jika ada > 1 metrik yang punya data */}
+                                            {chartMetrics.filter(m => mbmRows.some(r => r[m.key] !== undefined && r[m.key] !== null)).length > 1 && (
+                                                <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/10">
+                                                    {chartMetrics.filter(m => mbmRows.some(r => r[m.key] !== undefined && r[m.key] !== null)).map(m => {
+                                                        const isCur = statisticalAnalytics.targetKey === m.key;
+                                                        return (
+                                                            <button
+                                                                key={m.key}
+                                                                type="button"
+                                                                onClick={() => setAnalyticsMetricKey(m.key)}
+                                                                className={`px-2 py-0.5 text-[9.5px] font-black rounded-lg transition-all ${
+                                                                    isCur
+                                                                        ? 'bg-neon text-obsidian shadow-sm scale-105'
+                                                                        : 'text-slate-400 hover:text-white hover:bg-white/10'
+                                                                }`}
+                                                                title={`Klik untuk menganalisis metrik ${m.label}`}
+                                                            >
+                                                                {m.label.split(' ')[0]}
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowAnalyticsDrawer(false)}
+                                                className="w-5 h-5 rounded-md bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center text-xs"
+                                                title="Tutup panel analisis"
+                                            >
+                                                <i className="fa-solid fa-xmark"></i>
+                                            </button>
+                                        </div>
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
@@ -4673,7 +5062,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                         <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
                                             <div>
                                                 <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipologi Kurva</span>
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Tipologi Kurva ({statisticalAnalytics.targetLabel})</span>
                                                     <span className={"text-[9px] font-black px-2 py-0.5 rounded-full border " + (statisticalAnalytics.slopeBeta >= 0.035 ? "bg-neon/20 text-neon border-neon/40" : statisticalAnalytics.slopeBeta <= -0.035 ? "bg-rose-500/20 text-rose-300 border-rose-400/40" : "bg-sky-500/20 text-sky-300 border-sky-400/40")}>
                                                         {statisticalAnalytics.curveTypology.badge}
                                                     </span>
@@ -4704,11 +5093,11 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             </div>
                                         </div>
 
-                                        {/* Card 2: Korelasi Emosi Cerita vs Performa Rating */}
+                                        {/* Card 2: Korelasi Emosi Cerita vs Performa Metrik */}
                                         <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col justify-between">
                                             <div>
                                                 <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Korelasi Emosi vs Rating</span>
+                                                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Korelasi Emosi vs {statisticalAnalytics.targetLabel}</span>
                                                     {statisticalAnalytics.topEmotion && (
                                                         <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                                                             Peak: {statisticalAnalytics.topEmotion.icon} {statisticalAnalytics.topEmotion.key}
@@ -4724,8 +5113,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                 <span className="text-white/40 text-[9px]">({em.count}m • {em.pctOfTotal}%)</span>
                                                             </div>
                                                             <div className="flex items-center gap-1.5 font-mono">
-                                                                <span className="text-[9px] text-slate-400">Avg TVR:</span>
-                                                                <span className="font-bold text-neon">{em.avgTvr}</span>
+                                                                <span className="text-[9px] text-slate-400">Avg {statisticalAnalytics.targetLabel}:</span>
+                                                                <span className="font-bold text-neon">{em.avgVal}{statisticalAnalytics.isPercentMetric ? '%' : ''}</span>
                                                             </div>
                                                         </div>
                                                     ))}
@@ -4733,7 +5122,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             </div>
                                             <div className="text-[9px] text-slate-400 pt-1.5 border-t border-white/10 flex items-center justify-between">
                                                 <span>Target Hook: Konflik & Tegang</span>
-                                                <span className="text-slate-300 font-mono">Mean: {statisticalAnalytics.meanTvr} TVR</span>
+                                                <span className="text-slate-300 font-mono">Mean: {statisticalAnalytics.meanVal} {statisticalAnalytics.targetLabel}{statisticalAnalytics.isPercentMetric ? '%' : ''}</span>
                                             </div>
                                         </div>
 
@@ -4748,19 +5137,21 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                 </div>
                                                 <div className="grid grid-cols-2 gap-1.5 mb-2">
                                                     <div className="p-1.5 rounded bg-black/30 border border-white/5">
-                                                        <div className="text-[9px] text-slate-400">TVR Rata-rata Program</div>
-                                                        <div className="text-xs font-black text-neon font-mono">{statisticalAnalytics.avgProgTvr}</div>
+                                                        <div className="text-[9px] text-slate-400">{statisticalAnalytics.targetLabel} Rata-rata Program</div>
+                                                        <div className="text-xs font-black text-neon font-mono">{statisticalAnalytics.avgProgVal}{statisticalAnalytics.isPercentMetric ? '%' : ''}</div>
                                                     </div>
                                                     <div className="p-1.5 rounded bg-black/30 border border-white/5">
-                                                        <div className="text-[9px] text-slate-400">TVR Rata-rata Iklan</div>
-                                                        <div className="text-xs font-black text-sky-300 font-mono">{statisticalAnalytics.avgAdTvr}</div>
+                                                        <div className="text-[9px] text-slate-400">{statisticalAnalytics.targetLabel} Rata-rata Iklan</div>
+                                                        <div className="text-xs font-black text-sky-300 font-mono">{statisticalAnalytics.avgAdVal}{statisticalAnalytics.isPercentMetric ? '%' : ''}</div>
                                                     </div>
                                                 </div>
+                                                {/* Nilai Ritme (Pacing): Menit, Persen, dan Nilai Average */}
                                                 <div className="flex items-center gap-1.5 mb-2">
                                                     {statisticalAnalytics.pacingStats.map(pc => (
-                                                        <div key={pc.key} className="flex-1 p-1 rounded bg-black/20 text-center border border-white/5">
+                                                        <div key={pc.key} className="flex-1 p-1.5 rounded bg-black/20 text-center border border-white/5">
                                                             <div className="text-[9px] text-slate-400">{pc.icon} {pc.key}</div>
                                                             <div className="text-[10px] font-bold text-white font-mono">{pc.count}m <span className="text-white/40 text-[8px]">({pc.pctOfTotal}%)</span></div>
+                                                            <div className="text-[9px] font-black text-neon font-mono mt-0.5">Avg: {pc.avgVal}{statisticalAnalytics.isPercentMetric ? '%' : ''}</div>
                                                         </div>
                                                     ))}
                                                 </div>
@@ -4768,7 +5159,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             {statisticalAnalytics.draggingRisks && statisticalAnalytics.draggingRisks.length > 0 ? (
                                                 <div className="p-1.5 rounded bg-rose-500/15 border border-rose-500/30 text-[9px] text-rose-200 flex items-center gap-1.5">
                                                     <i className="fa-solid fa-triangle-exclamation text-rose-400"></i>
-                                                    <span>Terdeteksi {statisticalAnalytics.draggingRisks.length} segmen lambat yang menurunkan TVR tajam (&gt; -0.3). Evaluasi durasi.</span>
+                                                    <span>Terdeteksi {statisticalAnalytics.draggingRisks.length} segmen lambat yang menurunkan {statisticalAnalytics.targetLabel} tajam. Evaluasi durasi cerita.</span>
                                                 </div>
                                             ) : (
                                                 <div className="p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-[9px] text-emerald-300 flex items-center gap-1.5">
@@ -4816,20 +5207,29 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             </filter>
                                         </defs>
 
-                                        {/* Grid Horizontal & Ticks Sumbu Y Otomatis (Attachment 4: Mengikuti Metrik Tertinggi & Aktif) */}
+                                        {/* Grid Horizontal & Ticks Sumbu Y Otomatis (Multi-Scale Dinamis untuk Metrik Aktif) */}
                                         {[0, 0.5, 1].map((pct, idx) => {
                                             const y = padT + plotH * pct;
-                                            const val = (1 - pct) * axisMax;
-                                            const primaryLabel = val.toFixed(1) + (activeMetrics[0]?.isPercent ? "%" : "");
+                                            const primaryMetric = activeMetrics[0];
+                                            const secondaryMetric = activeMetrics.length > 1 ? activeMetrics[1] : null;
+
+                                            const primaryVal = primaryMetric ? (1 - pct) * (metricScaleMap[primaryMetric.key] || 10.0) : 0;
+                                            const primaryLabel = primaryMetric ? formatCompactAxis(primaryVal, primaryMetric.isPercent) : "";
+
+                                            const secondaryVal = secondaryMetric ? (1 - pct) * (metricScaleMap[secondaryMetric.key] || 10.0) : 0;
+                                            const secondaryLabel = secondaryMetric ? formatCompactAxis(secondaryVal, secondaryMetric.isPercent) : "";
+
                                             return (
                                                 <g key={idx}>
                                                     <line x1={padL} y1={y} x2={padL + plotW} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="3,3" />
-                                                    <text x={padL - 5} y={y + 2.5} fill={activeMetrics[0]?.color || "#94a3b8"} fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="end">
-                                                        {primaryLabel}
-                                                    </text>
-                                                    {activeMetrics.length > 1 && (
-                                                        <text x={padL + plotW + 5} y={y + 2.5} fill={activeMetrics[1]?.color || "#38bdf8"} fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="start">
-                                                            {val.toFixed(1) + (activeMetrics[1]?.isPercent ? "%" : "")}
+                                                    {primaryLabel && (
+                                                        <text x={padL - 5} y={y + 2.5} fill={primaryMetric.color} fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="end">
+                                                            {primaryLabel}
+                                                        </text>
+                                                    )}
+                                                    {secondaryLabel && (
+                                                        <text x={padL + plotW + 5} y={y + 2.5} fill={secondaryMetric.color} fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="start">
+                                                            {secondaryLabel}
                                                         </text>
                                                     )}
                                                 </g>
@@ -4891,7 +5291,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                         textAnchor="middle" 
                                                                         fontFamily="monospace"
                                                                     >
-                                                                        {coord.val.toFixed(1)}
+                                                                        {formatCompactAxis(coord.val, m.isPercent)}
                                                                     </text>
                                                                 )}
                                                             </g>
@@ -4920,7 +5320,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                 textAnchor="middle" 
                                                                 fontFamily="monospace"
                                                             >
-                                                                {(isPositive ? "▲ +" : "▼ -") + Math.abs(p.delta).toFixed(1) + (p.pct !== null ? (" | " + Math.abs(p.pct).toFixed(0) + "%") : "")}
+                                                                {(isPositive ? "▲ +" : "▼ -") + formatCompactAxis(Math.abs(p.delta)) + (p.pct !== null ? (" | " + Math.abs(p.pct).toFixed(0) + "%") : "")}
                                                             </text>
                                                         </g>
                                                     )}
@@ -6082,29 +6482,32 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                                                 )}
                                                                                                 {row.unit !== undefined && row.unit !== null && row.unit !== "" && (
                                                                                                     <span 
-                                                                                                        className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] ${
-                                                                                                            String(row.unit).toLowerCase().includes('iklan') || String(row.unit).toLowerCase().includes('break') || String(row.unit).toLowerCase().includes('ads')
-                                                                                                                ? 'bg-amber-500/25 text-amber-300 border-amber-500/40'
-                                                                                                                : 'bg-slate-800 text-slate-300 border-slate-700'
+                                                                                                        className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[110px] font-mono ${
+                                                                                                            !isNaN(parseCleanNumber(row.unit))
+                                                                                                                ? 'bg-purple-500/20 text-purple-300 border-purple-400/40'
+                                                                                                                : String(row.unit).toLowerCase().includes('iklan') || String(row.unit).toLowerCase().includes('break') || String(row.unit).toLowerCase().includes('ads')
+                                                                                                                    ? 'bg-amber-500/25 text-amber-300 border-amber-500/40'
+                                                                                                                    : 'bg-slate-800 text-slate-300 border-slate-700'
                                                                                                         }`}
                                                                                                         title={`Unit: ${row.unit} - Klik untuk edit`}
                                                                                                         onClick={() => setEditingRow({ ...row, index: idx + 1 })}
                                                                                                     >
-                                                                                                        {row.unit}
+                                                                                                        {!isNaN(parseCleanNumber(row.unit)) ? `Unit: ${formatNielsenNumber(parseCleanNumber(row.unit))}` : row.unit}
                                                                                                     </span>
                                                                                                 )}
-                                                                                                {/* Badges untuk Metrik Fleksibel Lainnya di Floating MBM */}
-                                                                                                {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share').map(m => {
+                                                                                                {/* Badges untuk Metrik Fleksibel Lainnya di Floating MBM (Reach, Index, dll) */}
+                                                                                                {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share' && m.key !== 'unit').map(m => {
                                                                                                     const val = row[m.key];
                                                                                                     if (val === undefined || val === null || val === "") return null;
                                                                                                     return (
                                                                                                         <span 
                                                                                                             key={m.key}
-                                                                                                            className="text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] bg-purple-500/20 text-purple-300 border-purple-400/30 font-mono"
+                                                                                                            className="text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] font-mono"
+                                                                                                            style={{ backgroundColor: `${m.color}25`, borderColor: `${m.color}50`, color: m.color }}
                                                                                                             title={`${m.label}: ${val} - Klik untuk edit`}
                                                                                                             onClick={() => setEditingRow({ ...row, index: idx + 1 })}
                                                                                                         >
-                                                                                                            {m.label.split(' ')[0]}: {val}{m.isPercent ? '%' : ''}
+                                                                                                            {m.label.split(' ')[0]}: {formatNielsenNumber(parseCleanNumber(val), m.isPercent)}
                                                                                                         </span>
                                                                                                     );
                                                                                                 })}
@@ -8310,29 +8713,32 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                     )}
                                                                     {row.unit !== undefined && row.unit !== null && row.unit !== "" && (
                                                                         <span 
-                                                                            className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] ${
-                                                                                String(row.unit).toLowerCase().includes('iklan') || String(row.unit).toLowerCase().includes('break') || String(row.unit).toLowerCase().includes('ads')
-                                                                                    ? 'bg-amber-100 text-amber-900 border-amber-300'
-                                                                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                                                            className={`text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[110px] font-mono ${
+                                                                                !isNaN(parseCleanNumber(row.unit))
+                                                                                    ? 'bg-purple-100 text-purple-800 border-purple-300'
+                                                                                    : String(row.unit).toLowerCase().includes('iklan') || String(row.unit).toLowerCase().includes('break') || String(row.unit).toLowerCase().includes('ads')
+                                                                                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                                                                                        : 'bg-slate-100 text-slate-700 border-slate-200'
                                                                             }`}
                                                                             title={`Unit: ${row.unit} - Klik untuk edit`}
                                                                             onClick={() => setEditingRow({ ...row, index: idx + 1 })}
                                                                         >
-                                                                            {row.unit}
+                                                                            {!isNaN(parseCleanNumber(row.unit)) ? `Unit: ${formatNielsenNumber(parseCleanNumber(row.unit))}` : row.unit}
                                                                         </span>
                                                                     )}
-                                                                    {/* Badges untuk Metrik Fleksibel Tambahan (misal: Reach, Impression) */}
-                                                                    {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share').map(m => {
+                                                                    {/* Badges untuk Metrik Fleksibel Tambahan (misal: Reach, Index) */}
+                                                                    {chartMetrics.filter(m => m.key !== 'tvr' && m.key !== 'share' && m.key !== 'unit').map(m => {
                                                                         const val = row[m.key];
                                                                         if (val === undefined || val === null || val === "") return null;
                                                                         return (
                                                                             <span 
                                                                                 key={m.key}
-                                                                                className="text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] bg-purple-50 text-purple-700 border-purple-200 font-mono"
+                                                                                className="text-[8.5px] font-extrabold px-1.5 py-0.5 rounded border shadow-xs cursor-pointer hover:scale-105 transition-transform truncate max-w-[85px] font-mono"
+                                                                                style={{ backgroundColor: `${m.color}15`, borderColor: `${m.color}40`, color: m.color }}
                                                                                 title={`${m.label}: ${val} - Klik untuk edit`}
                                                                                 onClick={() => setEditingRow({ ...row, index: idx + 1 })}
                                                                             >
-                                                                                {m.label.split(' ')[0]}: {val}{m.isPercent ? '%' : ''}
+                                                                                {m.label.split(' ')[0]}: {formatNielsenNumber(parseCleanNumber(val), m.isPercent)}
                                                                             </span>
                                                                         );
                                                                     })}
