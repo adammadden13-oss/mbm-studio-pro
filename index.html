@@ -708,7 +708,6 @@
             });
             
             const [apiKey, setApiKey] = useState(() => localStorage.getItem('mbm_apiKey') || "");
-            const [showApiKey, setShowApiKey] = useState(false);
 
             // Opsi & Rekomendasi Fitur/Model Gemini
             const geminiModelOptions = [
@@ -2648,6 +2647,36 @@
                 setTimeout(() => setToastMessage(null), 3000);
             };
 
+            // Handler Simpan & Hapus API Key Secara Eksplisit (Kebal & Tidak Terpengaruh Tombol Reset)
+            const handleSaveApiKey = () => {
+                const trimmed = (apiKey || "").trim();
+                if (!trimmed || trimmed.length < 8) {
+                    notify("⚠️ Harap masukkan API Key Gemini yang valid (minimal 8 karakter)!");
+                    return;
+                }
+                localStorage.setItem('mbm_apiKey', trimmed);
+                setApiKey(trimmed);
+                notify("✅ API Key berhasil disimpan dengan aman di browser!");
+            };
+
+            const handleDeleteApiKey = () => {
+                if (!apiKey && !localStorage.getItem('mbm_apiKey')) {
+                    notify("Tidak ada API Key yang tersimpan.");
+                    return;
+                }
+                const confirmed = window.confirm(
+                    "HAPUS API KEY DARI BROWSER:\n\n" +
+                    "Apakah Anda yakin ingin menghapus API Key ini?\n" +
+                    "Setelah dihapus, proses Generate AI visual akan kembali ke mode demo/simulasi.\n\n" +
+                    "Klik [OK] untuk menghapus API Key."
+                );
+                if (!confirmed) return;
+                localStorage.removeItem('mbm_apiKey');
+                setApiKey("");
+                setTempApiKey("");
+                notify("🗑️ API Key berhasil dihapus dari browser.");
+            };
+
             // Back, Reset, Undo Handler
             const handleBack = () => {
                 if (window.history.length > 1) {
@@ -2664,7 +2693,8 @@
                     "• Seluruh data baris MBM, sinopsis, dan file dari SEMUA proyek akan dihapus bersih (kosong default).\n" +
                     "• Seluruh file video dan link YouTube yang tersimpan akan dibersihkan total.\n" +
                     "• Riwayat file dan parameter settingan akan dikembalikan ke awal.\n" +
-                    "• Posisi layout semua box akan dikembalikan ke susunan awal.\n\n" +
+                    "• Posisi layout semua box akan dikembalikan ke susunan awal.\n" +
+                    "• CATATAN: API Key Anda tetap aman tersimpan dan TIDAK terpengaruh oleh Reset Total.\n\n" +
                     "Apakah Anda yakin ingin melanjutkan Reset Total?"
                 );
                 if (!confirmed) return;
@@ -8254,34 +8284,76 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                 </div>
 
                                                 {/* Gemini API Key */}
-                                                <div className="space-y-1.5">
-                                                    <div className="flex items-center justify-between">
-                                                        <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">GEMINI API KEY</label>
+                                                <div className="space-y-2 pt-2 border-t border-slate-100">
+                                                    <div className="flex items-center justify-between flex-wrap gap-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">GEMINI API KEY</label>
+                                                            {apiKey && apiKey.trim().length >= 8 ? (
+                                                                <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full flex items-center gap-1 border border-emerald-200">
+                                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                                    Tersimpan
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[9px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                                                                    Kosong
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                         <div className="flex items-center gap-2">
                                                             <a 
                                                                 href="https://aistudio.google.com/app/apikey" 
                                                                 target="_blank" 
                                                                 rel="noreferrer"
-                                                                className="text-[10px] text-lime-700 hover:text-lime-800 font-bold hover:underline"
+                                                                className="text-[10px] text-lime-700 hover:text-lime-800 font-bold hover:underline flex items-center gap-1"
                                                                 title="Dapatkan Google Gemini API Key gratis"
                                                             >
-                                                                Dapatkan Key Gratis
+                                                                <i className="fa-solid fa-arrow-up-right-from-square text-[9px]"></i>
+                                                                <span>Dapatkan Key Gratis</span>
                                                             </a>
-                                                            <span className="text-slate-300">•</span>
-                                                            <button onClick={() => setShowApiKey(!showApiKey)} className="text-[10px] text-slate-600 hover:text-slate-900 font-bold hover:underline">
-                                                                {showApiKey ? 'Tutup' : 'Lihat'}
-                                                            </button>
                                                         </div>
                                                     </div>
-                                                    <input 
-                                                        type={showApiKey ? "text" : "password"}
-                                                        value={apiKey}
-                                                        onChange={(e) => setApiKey(e.target.value)}
-                                                        placeholder="Masukkan API Key (AIzaSy...)"
-                                                        className="w-full bg-[#f8fafc] border border-slate-200 rounded-2xl px-4 py-2.5 text-xs text-slate-800 font-mono outline-none focus:bg-white focus:border-slate-400 transition-all shadow-inner"
-                                                    />
+
+                                                    {/* Form Input Password Masking + Tombol Simpan & Hapus Mandiri */}
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="relative flex-1">
+                                                            <i className="fa-solid fa-key absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                                                            <input 
+                                                                type="password"
+                                                                value={apiKey}
+                                                                onChange={(e) => setApiKey(e.target.value)}
+                                                                placeholder="Masukkan / tempel API Key Anda di sini..."
+                                                                autoComplete="off"
+                                                                spellCheck="false"
+                                                                className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-800 font-mono outline-none focus:bg-white focus:border-slate-400 transition-all shadow-inner tracking-widest"
+                                                            />
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleSaveApiKey}
+                                                            className="px-4 py-2.5 bg-obsidian hover:bg-black text-neon font-black text-xs rounded-xl shadow-sm transition-all active:scale-95 flex items-center gap-1.5 shrink-0 cursor-pointer"
+                                                            title="Simpan API Key secara permanen di browser"
+                                                        >
+                                                            <i className="fa-solid fa-floppy-disk text-xs"></i>
+                                                            <span>Simpan</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleDeleteApiKey}
+                                                            disabled={!apiKey && !localStorage.getItem('mbm_apiKey')}
+                                                            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 ${
+                                                                apiKey || localStorage.getItem('mbm_apiKey')
+                                                                    ? 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 cursor-pointer active:scale-95'
+                                                                    : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                                                            }`}
+                                                            title="Hapus API Key dari penyimpanan browser"
+                                                        >
+                                                            <i className="fa-solid fa-trash-can text-xs"></i>
+                                                            <span>Hapus</span>
+                                                        </button>
+                                                    </div>
+
                                                     <p className="text-[10px] text-slate-400 font-medium">
-                                                        API Key tersimpan aman di browser Anda untuk membaca visual video asli saat tombol Generate diklik.
+                                                        🔒 API Key dirahasiakan (disamarkan bintang/titik) dan tersimpan aman di browser Anda. Tombol Reset Total tidak akan menghapus API Key ini.
                                                     </p>
                                                 </div>
                                             </div>
@@ -9006,11 +9078,13 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             Masukkan Gemini API Key Anda:
                                         </label>
                                         <input 
-                                            type="text"
+                                            type="password"
                                             value={tempApiKey}
                                             onChange={(e) => setTempApiKey(e.target.value)}
                                             placeholder="Tempel API Key di sini (AIzaSy...)"
-                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400 shadow-inner"
+                                            autoComplete="off"
+                                            spellCheck="false"
+                                            className="w-full bg-[#f8fafc] border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-mono font-bold text-slate-800 outline-none focus:bg-white focus:border-slate-400 shadow-inner tracking-widest"
                                         />
                                         <div className="flex items-center justify-between mt-1 px-1">
                                             <span className="text-[10px] text-slate-400">Belum punya API Key?</span>
