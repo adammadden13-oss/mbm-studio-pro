@@ -885,6 +885,7 @@
 
             // Processing & Toast
             const [isGenerating, setIsGenerating] = useState(false);
+            const [generatingProjectId, setGeneratingProjectId] = useState(null);
             const [progress, setProgress] = useState(0);
             const [currentProcessingSegment, setCurrentProcessingSegment] = useState("");
             const [toastMessage, setToastMessage] = useState(null);
@@ -3029,6 +3030,24 @@
                 // Simpan video ke IndexedDB browser khusus project ini
                 await storeVideoInIDB(file, activeProjectId);
 
+                // Update metadata nama file ke state projects & localStorage project aktif
+                setProjects(prev => {
+                    const updated = prev.map(p => p.id === activeProjectId ? { ...p, fileName: file.name, updatedAt: Date.now() } : p);
+                    try { localStorage.setItem('mbm_projects_v2', JSON.stringify(updated)); } catch(err) {}
+                    return updated;
+                });
+                try {
+                    const saved = localStorage.getItem(`mbm_proj_data_${activeProjectId}`);
+                    const parsed = saved ? JSON.parse(saved) : {};
+                    localStorage.setItem(`mbm_proj_data_${activeProjectId}`, JSON.stringify({
+                        ...parsed,
+                        fileName: file.name,
+                        videoType: 'local',
+                        hasLocalVideo: true,
+                        updatedAt: Date.now()
+                    }));
+                } catch(err) {}
+
                 localStorage.removeItem('mbm_youtube_id');
 
                 setRecentFiles(prev => {
@@ -3452,6 +3471,11 @@
 
             // Trigger Generator: Cek apakah API key tersedia atau buka modal
             const handleGenerateMBM = () => {
+                if (isGenerating) {
+                    const genProj = projects.find(p => p.id === generatingProjectId);
+                    notify(`Sedang memproses AI untuk ${genProj?.name || 'Project ' + generatingProjectId}. Harap tunggu sebentar.`);
+                    return;
+                }
                 if (!apiKey || apiKey.trim().length < 8) {
                     setTempApiKey(apiKey);
                     setShowApiKeyModal(true);
@@ -3462,9 +3486,49 @@
 
             // Eksekusi Generate: Mode Kilat Turbo (5-10s) vs Audio Paralel (15-25s) vs Simulasi
             const runGenerate = async (useRealAI) => {
+                // KUNCI ID PROYEK TARGET SECARA PERMANEN (Mencegah Kebocoran MBM Antar-Proyek)
+                const targetProjId = activeProjectId;
+                const targetProjectObj = projects.find(p => p.id === targetProjId);
+                const targetProjName = targetProjectObj?.name || `Project ${targetProjId}`;
+                const targetFileName = uploadedFileName;
+
+                setGeneratingProjectId(targetProjId);
                 setIsGenerating(true);
                 setProgress(0);
                 setHistoryStack(prev => [...prev, { rows: [...mbmRows], synopsis }]);
+
+                // Helper update data terisolasi ke storage proyek target dan UI jika masih aktif
+                const saveGeneratedToProject = (rowsToSave, synToSave) => {
+                    // 1. Simpan selalu ke LocalStorage proyek target spesifik
+                    try {
+                        const saved = localStorage.getItem(`mbm_proj_data_${targetProjId}`);
+                        const parsed = saved ? JSON.parse(saved) : {};
+                        const updated = {
+                            ...parsed,
+                            rows: rowsToSave,
+                            synopsis: synToSave,
+                            fileName: targetFileName || parsed.fileName || targetProjName,
+                            updatedAt: Date.now()
+                        };
+                        localStorage.setItem(`mbm_proj_data_${targetProjId}`, JSON.stringify(updated));
+                    } catch(e) {}
+
+                    // 2. Update badge dan metadata list projects
+                    setProjects(prev => {
+                        const updated = prev.map(p => p.id === targetProjId ? { ...p, rowCount: rowsToSave.length, fileName: targetFileName || p.fileName || p.name, updatedAt: Date.now() } : p);
+                        try { localStorage.setItem('mbm_projects_v2', JSON.stringify(updated)); } catch(e) {}
+                        return updated;
+                    });
+
+                    // 3. Hanya update state React jika user MASIH berada di targetProjId
+                    setActiveProjectId(currentActive => {
+                        if (currentActive === targetProjId) {
+                            setMbmRows(rowsToSave);
+                            setSynopsis(synToSave);
+                        }
+                        return currentActive;
+                    });
+                };
 
                 // Mulai Stopwatch / Penghitung Waktu Generate (Attachment 2)
                 if (generationTimerRef.current) clearInterval(generationTimerRef.current);
@@ -3878,9 +3942,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
                                 deskripsi: r.deskripsi || (typeof r === 'string' ? r : "Aktivitas adegan siaran.")
                             }));
 
-                            setMbmRows(newRows);
-                            setSynopsis(synopsisText.trim());
-                            notify(`⚡ Sukses Kilat! ${newRows.length} segmen MBM selesai dalam hitungan detik dengan ${activeModel}.`);
+                            saveGeneratedToProject(newRows, synopsisText.trim());
+                            notify(`⚡ Sukses Kilat! ${newRows.length} segmen MBM selesai untuk ${targetProjName} (${activeModel}).`);
 
                         } else {
                             // =========================================================================
@@ -4006,8 +4069,24 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 setProgress(Math.round(20 + (completedCount / segments.length) * 70));
                                 setCurrentProcessingSegment(`Paralel: ${completedCount}/${segments.length} segmen selesai...`);
                                 
-                                // Live update baris yang sudah selesai ke UI
-                                setMbmRows(accumulatedRows.filter(Boolean));
+                                // Live update baris yang sudah selesai ke storage & UI jika masih di targetProjId
+                                const currentCompleted = accumulatedRows.filter(Boolean);
+                                try {
+                                    const saved = localStorage.getItem(`mbm_proj_data_${targetProjId}`);
+                                    const parsed = saved ? JSON.parse(saved) : {};
+                                    localStorage.setItem(`mbm_proj_data_${targetProjId}`, JSON.stringify({
+                                        ...parsed,
+                                        rows: currentCompleted,
+                                        updatedAt: Date.now()
+                                    }));
+                                } catch(e) {}
+
+                                setActiveProjectId(currentActive => {
+                                    if (currentActive === targetProjId) {
+                                        setMbmRows(currentCompleted);
+                                    }
+                                    return currentActive;
+                                });
                             };
 
                             let queueIndex = 0;
@@ -4021,20 +4100,22 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
 
                             // Sinopsis Global
                             const validRows = accumulatedRows.filter(Boolean);
+                            let synText = "";
                             if (validRows.length > 0) {
                                 setCurrentProcessingSegment("Menyusun sinopsis global...");
                                 try {
-                                    const synPrompt = `Berdasarkan catatan log MBM tayangan "${uploadedFileName}":\n\n` +
+                                    const synPrompt = `Berdasarkan catatan log MBM tayangan "${targetFileName || uploadedFileName}":\n\n` +
                                         validRows.map(r => `${r.rentangWaktu}: ${r.deskripsi}`).slice(0, 15).join('\n\n') +
                                         `\n\nBuat sinopsis global 2-3 paragraf padat mengenai alur cerita utama, konflik/topik, dialog kunci, dan pesan tayangan.`;
                                     const synResp = await sendGeminiRequest([{ text: synPrompt }]);
                                     if (synResp && synResp.text) {
-                                        setSynopsis(synResp.text.trim());
+                                        synText = synResp.text.trim();
                                     }
                                 } catch (synErr) {
                                     console.warn("Sinopsis error:", synErr);
                                 }
-                                notify(`Selesai! ${validRows.length} segmen diproses secara paralel dengan ${activeModel}.`);
+                                saveGeneratedToProject(validRows, synText);
+                                notify(`Selesai! ${validRows.length} segmen untuk ${targetProjName} diproses secara paralel (${activeModel}).`);
                             }
                         }
 
@@ -4055,11 +4136,11 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                         notify("Gagal AI Gemini: " + err.message);
                         alert(`Terjadi kendala saat memanggil Gemini API:\n\n${err.message}\n\nSistem beralih ke mode simulasi cerdas.`);
                         // Fallback ke simulasi spesifik file
-                        await generateSimulatedLogs(segments, duration);
+                        await generateSimulatedLogs(segments, duration, targetProjId, targetProjName, targetFileName);
                     }
                 } else {
                     // Mode Demo / Simulasi Spesifik File
-                    await generateSimulatedLogs(segments, duration);
+                    await generateSimulatedLogs(segments, duration, targetProjId, targetProjName, targetFileName);
                 }
 
                 // Selesaikan Progres ke 100% & Hentikan Stopwatch Timer (Attachment 2)
@@ -4075,6 +4156,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                     formattedTime: formatElapsedHuman(totalDurationSecs),
                     formattedTimer: formatElapsedTimer(totalDurationSecs),
                     speedMode: effectiveSpeedMode,
+                    projectId: targetProjId,
                     timestamp: Date.now()
                 };
                 setLastGenerationDuration(genDurationData);
@@ -4083,12 +4165,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                 } catch(e) {}
 
                 setIsGenerating(false);
+                setGeneratingProjectId(null);
                 setCurrentProcessingSegment("");
             };
 
-            const generateSimulatedLogs = async (segments, duration) => {
+            const generateSimulatedLogs = async (segments, duration, targetProjId = activeProjectId, targetProjName = null, targetFileName = null) => {
+                const effectiveProjId = targetProjId || activeProjectId;
+                const effectiveProjName = targetProjName || projects.find(p => p.id === effectiveProjId)?.name || `Project ${effectiveProjId}`;
+                const effectiveFileName = targetFileName || uploadedFileName;
                 const generatedLogs = [];
-                const baseName = uploadedFileName.replace(/\.[^/.]+$/, "");
+                const baseName = effectiveFileName.replace(/\.[^/.]+$/, "");
 
                 // Deteksi topik konten secara cerdas dari nama file / judul video / link YouTube
                 const isAutomotive = /motor|mobil|otomotif|omoway|review|test|scooter|honda|yamaha|ev|listrik|Rp4ck6C_O5s/i.test(uploadedFileName)
@@ -4240,9 +4326,33 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                     setProgress(Math.round(((i + 1) / segments.length) * 100));
                 }
 
-                setMbmRows(generatedLogs);
-                setSynopsis(generatedSynopsis);
-                notify(`Log MBM berhasil dibuat sesuai video "${baseName}"!`);
+                // Simpan selalu ke LocalStorage proyek target
+                try {
+                    const saved = localStorage.getItem(`mbm_proj_data_${effectiveProjId}`);
+                    const parsed = saved ? JSON.parse(saved) : {};
+                    localStorage.setItem(`mbm_proj_data_${effectiveProjId}`, JSON.stringify({
+                        ...parsed,
+                        rows: generatedLogs,
+                        synopsis: generatedSynopsis,
+                        fileName: effectiveFileName || parsed.fileName || effectiveProjName,
+                        updatedAt: Date.now()
+                    }));
+                } catch(e) {}
+
+                setProjects(prev => {
+                    const updated = prev.map(p => p.id === effectiveProjId ? { ...p, rowCount: generatedLogs.length, fileName: effectiveFileName || p.fileName || p.name, updatedAt: Date.now() } : p);
+                    try { localStorage.setItem('mbm_projects_v2', JSON.stringify(updated)); } catch(e) {}
+                    return updated;
+                });
+
+                setActiveProjectId(currentActive => {
+                    if (currentActive === effectiveProjId) {
+                        setMbmRows(generatedLogs);
+                        setSynopsis(generatedSynopsis);
+                    }
+                    return currentActive;
+                });
+                notify(`Log MBM berhasil dibuat untuk ${effectiveProjName}!`);
             };
 
             const updateRow = (id, field, value) => {
@@ -7610,8 +7720,8 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                 </div>
                                             )}
 
-                                            {/* Progress Bar Generator MBM & Tools Timer Waktu Generate (Attachment 2) */}
-                                            {isGenerating && (
+                                            {/* Progress Bar Generator MBM & Tools Timer Waktu Generate (Terisolasi per Proyek) */}
+                                            {isGenerating && (generatingProjectId === null || generatingProjectId === activeProjectId) && (
                                                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3 mt-2 shadow-sm animate-in fade-in">
                                                     <div className="flex flex-wrap justify-between items-center gap-2 text-xs font-black text-slate-700">
                                                         <span className="flex items-center gap-2 text-obsidian min-w-0 flex-1">
@@ -7647,8 +7757,27 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                 </div>
                                             )}
 
-                                            {/* Banner Informasi Waktu Penyelesaian Generate (100% Selesai - Attachment 2) */}
-                                            {!isGenerating && lastGenerationDuration && (
+                                            {/* Notifikasi jika Proyek Lain Sedang Dikerjakan di Latar Belakang */}
+                                            {isGenerating && generatingProjectId !== null && generatingProjectId !== activeProjectId && (
+                                                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 sm:px-4 sm:py-2.5 flex items-center justify-between gap-2 mt-2 text-xs text-amber-900 shadow-sm animate-in fade-in">
+                                                    <div className="flex items-center gap-2 min-w-0">
+                                                        <i className="fa-solid fa-spinner animate-spin text-amber-600 shrink-0 text-xs"></i>
+                                                        <span className="font-bold text-amber-950 truncate">
+                                                            {projects.find(p => p.id === generatingProjectId)?.name || 'Project ' + generatingProjectId} sedang diproses di latar belakang ({progress}%)...
+                                                        </span>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleSwitchProject(generatingProjectId)}
+                                                        className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] shrink-0 transition-colors shadow-xs"
+                                                    >
+                                                        Lihat Proses &rarr;
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* Banner Informasi Waktu Penyelesaian Generate (100% Selesai - Terisolasi per Proyek) */}
+                                            {!isGenerating && lastGenerationDuration && (lastGenerationDuration.projectId === undefined || lastGenerationDuration.projectId === activeProjectId) && (
                                                 <div className="bg-emerald-50/90 border border-emerald-200/90 rounded-2xl p-3 sm:px-4 sm:py-2.5 flex items-center justify-between gap-2 mt-2 text-xs text-emerald-900 shadow-sm animate-in fade-in">
                                                     <div className="flex items-center gap-2.5 min-w-0">
                                                         <span className="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center shrink-0 text-xs shadow-sm">
@@ -9130,6 +9259,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                 {projects.map((proj) => {
                                     const isActive = activeProjectId === proj.id;
                                     const count = proj.id === activeProjectId ? mbmRows.length : (proj.rowCount || 0);
+                                    const isThisProjGenerating = isGenerating && generatingProjectId === proj.id;
                                     return (
                                         <button
                                             key={proj.id}
@@ -9140,8 +9270,11 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                     ? 'bg-neon text-obsidian font-black shadow-[0_0_12px_rgba(204,255,0,0.5)] scale-105'
                                                     : 'hover:bg-white/10 text-slate-300 hover:text-white'
                                             }`}
-                                            title={`Beralih ke ${proj.name}`}
+                                            title={`Beralih ke ${proj.name}${isThisProjGenerating ? ' (Sedang proses AI...)' : ''}`}
                                         >
+                                            {isThisProjGenerating && (
+                                                <i className={`fa-solid fa-spinner animate-spin text-[10px] ${isActive ? 'text-obsidian' : 'text-neon'}`}></i>
+                                            )}
                                             <span>{proj.name}</span>
                                             <span className={`text-[9px] font-black px-1.5 py-0.2 rounded-full ${
                                                 isActive ? 'bg-obsidian/20 text-obsidian' : 'bg-white/10 text-slate-400'
