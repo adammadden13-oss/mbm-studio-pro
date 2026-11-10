@@ -245,7 +245,7 @@
                 searchPlaceholder: "Cari adegan atau tokoh...",
                 searchPlaceholderFull: "Cari adegan atau tokoh (misal: Davina, Sena)...",
                 pasteNielsen: "Tempel Rating Nielsen",
-                generateAiParallel: "Generate AI (Paralel)",
+                generateAiParallel: "Generate AI (In-Depth ~1-2m)",
                 generateAiTurbo: "Generate AI (Kilat 5-10s)",
                 timeRange: "Rentang Waktu",
                 sceneDescription: "Deskripsi Adegan",
@@ -342,7 +342,7 @@
                 searchPlaceholder: "Search scene or character...",
                 searchPlaceholderFull: "Search scene or character (e.g. Davina, Sena)...",
                 pasteNielsen: "Paste Nielsen Rating",
-                generateAiParallel: "Generate AI (Parallel)",
+                generateAiParallel: "Generate AI (In-Depth ~1-2m)",
                 generateAiTurbo: "Generate AI (Turbo 5-10s)",
                 timeRange: "Time Range",
                 sceneDescription: "Scene Description",
@@ -3456,14 +3456,14 @@
                 }
             };
 
-            // Ekstrak segmen audio tertentu dan ubah ke WAV base64 (16kHz Mono standar broadcast speech recognition)
-            const extractSegmentWav = (audioBuffer, startSec, endSec, targetRate = 16000) => {
+            // Ekstrak segmen audio tertentu dan ubah ke WAV base64 (12-16kHz Mono standar broadcast speech recognition)
+            const extractSegmentWav = (audioBuffer, startSec, endSec, targetRate = 12000) => {
                 if (!audioBuffer) return null;
                 try {
                     const srcRate = audioBuffer.sampleRate;
                     const startSample = Math.max(0, Math.floor(startSec * srcRate));
-                    // Batasi durasi klip audio maksimal 30 detik per segmen agar dialog terdengar utuh & presisi
-                    const clipDuration = Math.min(Math.max(0, endSec - startSec), 30);
+                    // Batasi durasi klip audio maksimal 25 detik per segmen agar dialog terdengar utuh & hemat bandwidth
+                    const clipDuration = Math.min(Math.max(0, endSec - startSec), 25);
                     const endSample = Math.min(audioBuffer.length, startSample + Math.floor(clipDuration * srcRate));
                     const numSamples = endSample - startSample;
                     if (numSamples <= 0) return null;
@@ -3977,84 +3977,106 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON BERIKUT (VALID JSON, TANPA PENJELASAN 
 
                         } else {
                             // =========================================================================
-                            // JALUR 2: 🎙️ MODE AUDIO PARALEL (4 WORKER SERENTAK ~15-25 DETIK)
-                            // Ekstraksi audio klip ringan & inferensi secara paralel
+                            // JALUR 2: 🎙️ MODE SMART BATCHING IN-DEPTH (~1–2 MENIT TOTAL)
+                            // Mengelompokkan per 4 segmen dengan pra-ekstraksi visual & audio verbatim
                             // =========================================================================
                             let audioBuffer = null;
                             if (includeAudioDialog) {
                                 const targetFile = audioFile || videoFile;
                                 if (targetFile) {
                                     setCurrentProcessingSegment(`Mendekode buffer audio dari ${targetFile.name}...`);
-                                    setProgress(10);
+                                    setProgress(8);
                                     audioBuffer = await decodeAudioFromFile(targetFile);
                                     if (audioBuffer) {
-                                        notify("Audio siap diproses dengan 4 Worker Paralel!");
+                                        notify("Audio siap untuk Smart Batching In-Depth!");
                                     }
                                 }
                             }
 
-                            setCurrentProcessingSegment(`Menjalankan 4 Worker Paralel untuk ${segments.length} segmen...`);
-                            setProgress(20);
+                            // 1. PRA-PENGAMBILAN FRAME BERURUTAN (Bebas bentrok browser & cepat ~2-4 detik)
+                            setCurrentProcessingSegment(`Mengambil frame visual untuk ${segments.length} segmen...`);
+                            setProgress(12);
+                            const capturedFrames = new Array(segments.length);
+                            if (videoEl && videoUrl) {
+                                for (let i = 0; i < segments.length; i++) {
+                                    const seg = segments[i];
+                                    const midTime = (seg.start + seg.end) / 2;
+                                    capturedFrames[i] = await captureFrameAt(videoEl, midTime);
+                                    setProgress(12 + Math.round((i / segments.length) * 12));
+                                }
+                            }
 
-                            const CONCURRENCY = 4;
+                            // 2. KELOMPOKKAN KE SMART BATCHES (4 Segmen per Request AI)
+                            const BATCH_SIZE = 4;
+                            const batches = [];
+                            for (let i = 0; i < segments.length; i += BATCH_SIZE) {
+                                batches.push(segments.slice(i, i + BATCH_SIZE));
+                            }
+
+                            setCurrentProcessingSegment(`Memproses ${batches.length} batch (${segments.length} segmen) dengan Gemini AI...`);
+                            setProgress(26);
+
                             const accumulatedRows = new Array(segments.length);
-                            let completedCount = 0;
+                            let completedSegmentsCount = 0;
+                            const BATCH_CONCURRENCY = 3;
 
-                            const processSegment = async (index) => {
-                                const seg = segments[index];
-                                let base64Image = null;
-                                if (videoEl && videoUrl) {
-                                    base64Image = await captureFrameAt(videoEl, (seg.start + seg.end) / 2);
-                                }
-
-                                let base64Audio = null;
-                                if (audioBuffer && includeAudioDialog) {
-                                    // 16kHz mono audio, maks 30 detik -> kualitas speech-to-text optimal untuk dialog bilingual
-                                    base64Audio = extractSegmentWav(audioBuffer, seg.start, seg.end, 16000);
-                                }
-
+                            const processBatch = async (batchSegments, batchIndex) => {
                                 const buildParts = (withAudio) => {
                                     const parts = [];
-                                    parts.push({ text: `Rentang Waktu: ${seg.timeCode}. Judul video: "${uploadedFileName}".` });
-                                    if (base64Image) {
-                                        parts.push({
-                                            inline_data: {
-                                                mime_type: "image/jpeg",
-                                                data: base64Image
-                                            }
-                                        });
-                                    }
-                                    if (withAudio && base64Audio) {
-                                        parts.push({
-                                            inline_data: {
-                                                mime_type: "audio/wav",
-                                                data: base64Audio
-                                            }
-                                        });
-                                    }
                                     parts.push({
-                                        text: `Anda adalah AI Broadcast Monitoring Logger profesional.
-Analisis tayangan "${uploadedFileName}" pada segmen "${seg.timeCode}". Buat catatan log MBM presisi:
+                                        text: `Anda adalah AI Broadcast Monitoring Logger profesional untuk stasiun televisi.
+Tugas Anda adalah membuat catatan Minute-by-Minute (MBM) mendalam, faktual, dan presisi untuk ${batchSegments.length} segmen waktu berikut dari tayangan "${uploadedFileName}".
 
 PANDUAN DETEKSI GRAFIS & AREA:
-• 🟢 KOTAK HIJAU [FOKUS: HEADLINE / LOWER THIRD]: Baca teks grafis di area hijau ini (nama narasumber, profesi, judul headline berita) dan gunakan sebagai rujukan nama narasumber / topik.
-• 🔴 KOTAK MERAH [DIABAIKAN]: Abaikan sensor penutup logo TV/QR code/promo.
+• 🟢 KOTAK HIJAU [FOKUS: HEADLINE / LOWER THIRD]: Wajib membaca teks grafis berita/chyron pada area kotak hijau ini (nama narasumber, profesi, judul headline berita) dan gunakan sebagai rujukan nama narasumber / topik.
+• 🔴 KOTAK MERAH [DIABAIKAN]: Abaikan sensor penutup logo TV/QR code/jam/promo.
 
 PANDUAN AUDIO & TRANSKRIP DIALOG (BILINGUAL / CODE-SWITCHING INDO-ENGLISH):
-• Transkripsikan dialog percakapan secara verbatim dan faktual. Jika pembicara menggunakan bahasa campuran (Indoglish / istilah bahasa Inggris seperti "exclusive", "chemistry", "scene", "look", "review", dll), pertahankan istilah tersebut secara akurat.
-• Bedakan antara VO (Voice Over Narator), Presenter, dan Soundbite Narasumber.
-• (Jika hening atau hanya musik/efek suara, tuliskan: [Dialog] (Hanya musik latar / tanpa dialog suara))
+• Dengarkan audio tiap segmen dengan saksama dan transkripsikan percakapan secara VERBATIM (faktual dan akurat). Pertahankan istilah campuran (Indoglish / bahasa Inggris jika ada).
+• Sebutkan identitas pembicara: Presenter, Narasumber (sebut nama jika tertera di kotak hijau), atau Voice Over (VO).
+• Jika hening atau hanya musik/efek suara, tuliskan: [Dialog] (Hanya musik latar / tanpa dialog suara).
 
-${base64Audio ? "PANDUAN AUDIO: Dengarkan klip audio yang disertakan dengan saksama untuk menangkap percakapan dan intonasi pembicara." : "PANDUAN: Analisis berdasarkan visual dan judul video."}
-
-KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
-{
-  "rentangWaktu": "${seg.timeCode}",
-  "pacing": "Cepat / Sedang / Lambat",
-  "emosi": "Konflik / Sedih / Happy / Tegang / Netral",
-  "deskripsi": "[Visual] ...\\n[Headline / Lower Third] ...\\n[Dialog]\\n• ..."
-}`
+Berikut adalah data visual dan cuplikan audio untuk masing-masing segmen:`
                                     });
+
+                                    batchSegments.forEach((seg, bIdx) => {
+                                        parts.push({ text: `\n=== SEGMEN ${bIdx + 1}: Rentang Waktu [${seg.timeCode}] ===` });
+                                        const frameB64 = capturedFrames[seg.index];
+                                        if (frameB64) {
+                                            parts.push({
+                                                inline_data: {
+                                                    mime_type: "image/jpeg",
+                                                    data: frameB64
+                                                }
+                                            });
+                                        }
+                                        if (withAudio && audioBuffer && includeAudioDialog) {
+                                            const audioB64 = extractSegmentWav(audioBuffer, seg.start, seg.end, 12000);
+                                            if (audioB64) {
+                                                parts.push({
+                                                    inline_data: {
+                                                        mime_type: "audio/wav",
+                                                        data: audioB64
+                                                    }
+                                                });
+                                            }
+                                        }
+                                    });
+
+                                    parts.push({
+                                        text: `FORMAT KELUARAN WAJIB (JSON ARRAY):
+Kembalikan persis ${batchSegments.length} item dalam JSON array, satu item untuk tiap segmen berurutan:
+[
+  {
+    "rentangWaktu": "${batchSegments[0].timeCode}",
+    "pacing": "Cepat / Sedang / Lambat",
+    "emosi": "Konflik / Sedih / Happy / Tegang / Netral",
+    "deskripsi": "[Visual] Deskripsi visual faktual adegan detail (tokoh, busana, latar tempat, aktivitas).\\n[Headline / Lower Third] Teks pada area hijau jika ada.\\n[Dialog]\\n• Nama Pembicara: \\"Kutipan percakapan verbatim faktual...\\""
+  }
+]
+HANYA KELUARKAN JSON ARRAY YANG VALID TANPA PENJELASAN LAIN.`
+                                    });
+
                                     return parts;
                                 };
 
@@ -4064,42 +4086,39 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                     resultText = r.text;
                                     activeModel = r.modelUsed;
                                 } catch (e) {
-                                    console.warn(`Segmen ${seg.timeCode} audio fallback ke visual:`, e);
+                                    console.warn(`Batch ${batchIndex + 1} audio fallback ke visual:`, e);
                                     const fallback = await sendGeminiRequest(buildParts(false));
                                     resultText = fallback.text;
                                     activeModel = fallback.modelUsed;
                                 }
 
-                                let desc = "Aktivitas adegan siaran.";
-                                const parsedSeg = safeParseGeminiJson(resultText);
-                                if (parsedSeg && parsedSeg.deskripsi) {
-                                    desc = parsedSeg.deskripsi;
-                                } else if (parsedSeg && typeof parsedSeg === 'object') {
-                                    const val = Object.values(parsedSeg).find(v => typeof v === 'string' && v.trim().length > 10);
-                                    if (val) desc = val;
-                                } else {
-                                    const rawClean = (resultText || "").replace(/```json/gi, '').replace(/```/g, '').trim();
-                                    if (rawClean.includes('AI Broadcast Logger') || rawClean.includes('JSON only') || rawClean.includes('rentangWaktu') || rawClean.startsWith('*')) {
-                                        desc = "[Visual] Pembahasan tayangan \"" + uploadedFileName + "\" pada menit " + seg.timeCode + ".\n[Dialog]\n• Presenter: Menjelaskan poin ulasan dan fitur terkait.";
-                                    } else {
-                                        desc = rawClean || desc;
+                                const parsedBatch = safeParseGeminiJson(resultText);
+                                let items = Array.isArray(parsedBatch) ? parsedBatch : (parsedBatch?.rows || []);
+
+                                batchSegments.forEach((seg, sIdx) => {
+                                    const matchedItem = (Array.isArray(items) && items.find(it => it && it.rentangWaktu === seg.timeCode)) || (Array.isArray(items) ? items[sIdx] : null);
+                                    let desc = matchedItem?.deskripsi;
+                                    if (!desc && matchedItem && typeof matchedItem === 'object') {
+                                        desc = Object.values(matchedItem).find(v => typeof v === 'string' && v.trim().length > 15);
                                     }
-                                }
+                                    if (!desc) {
+                                        desc = `[Visual] Pembahasan tayangan "${uploadedFileName}" pada menit ${seg.timeCode}.\n[Dialog]\n• Presenter: Ulasan tayangan.`;
+                                    }
 
-                                accumulatedRows[index] = {
-                                    id: Date.now() + index,
-                                    pacing: parsedSeg?.pacing,
-                                    emosi: parsedSeg?.emosi,
-                                    rentangWaktu: seg.timeCode,
+                                    accumulatedRows[seg.index] = {
+                                        id: Date.now() + seg.index,
+                                        pacing: matchedItem?.pacing || "Sedang",
+                                        emosi: matchedItem?.emosi || "Ceria",
+                                        rentangWaktu: seg.timeCode,
+                                        deskripsi: desc
+                                    };
+                                });
 
-                                    deskripsi: desc
-                                };
+                                completedSegmentsCount += batchSegments.length;
+                                setProgress(Math.min(92, Math.round(26 + (completedSegmentsCount / segments.length) * 66)));
+                                setCurrentProcessingSegment(`In-Depth: ${Math.min(completedSegmentsCount, segments.length)}/${segments.length} segmen selesai...`);
 
-                                completedCount++;
-                                setProgress(Math.round(20 + (completedCount / segments.length) * 70));
-                                setCurrentProcessingSegment(`Paralel: ${completedCount}/${segments.length} segmen selesai...`);
-                                
-                                // Live update baris yang sudah selesai ke storage & UI jika masih di targetProjId
+                                // Live update tampilan tabel MBM agar baris langsung muncul secara progresif
                                 const currentCompleted = accumulatedRows.filter(Boolean);
                                 try {
                                     const saved = localStorage.getItem(`mbm_proj_data_${targetProjId}`);
@@ -4120,10 +4139,10 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                             };
 
                             let queueIndex = 0;
-                            const workers = Array(Math.min(CONCURRENCY, segments.length)).fill(0).map(async () => {
-                                while (queueIndex < segments.length) {
-                                    const idx = queueIndex++;
-                                    await processSegment(idx);
+                            const workers = Array(Math.min(BATCH_CONCURRENCY, batches.length)).fill(0).map(async () => {
+                                while (queueIndex < batches.length) {
+                                    const bIdx = queueIndex++;
+                                    await processBatch(batches[bIdx], bIdx);
                                 }
                             });
                             await Promise.all(workers);
@@ -4145,7 +4164,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                     console.warn("Sinopsis error:", synErr);
                                 }
                                 saveGeneratedToProject(validRows, synText);
-                                notify(`Selesai! ${validRows.length} segmen untuk ${targetProjName} diproses secara paralel (${activeModel}).`);
+                                notify(`⚡ Sukses In-Depth! ${validRows.length} segmen untuk ${targetProjName} selesai (~1-2m) (${activeModel}).`);
                             }
                         }
 
@@ -8107,7 +8126,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                         </div>
                                                         <span className="text-[9px] font-black uppercase tracking-wider text-obsidian bg-limeBorder px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
                                                             <span className="w-1.5 h-1.5 rounded-full bg-lime-700 animate-pulse"></span>
-                                                            {generationSpeedMode === 'turbo' ? 'Mode Kilat (5–10s)' : 'Audio Paralel (15–25s)'}
+                                                            {generationSpeedMode === 'turbo' ? 'Mode Kilat (5–10s)' : 'In-Depth Cepat (~1–2m)'}
                                                         </span>
                                                     </div>
 
@@ -8132,7 +8151,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
                                                                     generationSpeedMode === 'turbo' ? 'bg-neon text-obsidian' : 'bg-limePill text-limeText'
                                                                 }`}>
-                                                                    Rekomendasi
+                                                                    5–10s
                                                                 </span>
                                                             </div>
                                                             <p className={`text-[10px] leading-tight ${generationSpeedMode === 'turbo' ? 'text-slate-300' : 'text-slate-500'}`}>
@@ -8145,7 +8164,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                             onClick={() => {
                                                                 setGenerationSpeedMode('parallel');
                                                                 localStorage.setItem('mbm_speed_mode', 'parallel');
-                                                                notify("Mode Audio Paralel aktif: 4 Worker serentak mendengarkan percakapan!");
+                                                                notify("Mode In-Depth Cepat aktif: Smart Batching audio verbatim & visual Lower-Third (~1–2 menit)!");
                                                             }}
                                                             className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between gap-1.5 active:scale-95 ${
                                                                 generationSpeedMode === 'parallel'
@@ -8155,16 +8174,16 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                                         >
                                                             <div className="flex items-center justify-between">
                                                                 <span className={`text-xs font-black ${generationSpeedMode === 'parallel' ? 'text-neon' : 'text-slate-900'}`}>
-                                                                    Audio Paralel (4x)
+                                                                    In-Depth Cepat (Smart Batching)
                                                                 </span>
                                                                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded-md ${
-                                                                    generationSpeedMode === 'parallel' ? 'bg-neon text-obsidian' : 'bg-slate-100 text-slate-600'
+                                                                    generationSpeedMode === 'parallel' ? 'bg-neon text-obsidian' : 'bg-limePill text-limeText border border-limeBorder'
                                                                 }`}>
-                                                                    15–25 Detik
+                                                                    Rekomendasi (~1–2m)
                                                                 </span>
                                                             </div>
                                                             <p className={`text-[10px] leading-tight ${generationSpeedMode === 'parallel' ? 'text-slate-300' : 'text-slate-500'}`}>
-                                                                <strong>15–25 Detik:</strong> 4 Worker paralel serentak mendengarkan cuplikan audio untuk transkrip dialog suara langsung dari tayangan.
+                                                                <strong>~1–2 Menit Selesai:</strong> Batching 4 menit serentak mendengarkan cuplikan audio verbatim & visual Lower-Third presisi. Kualitas mendalam & cepat.
                                                             </p>
                                                         </button>
                                                     </div>
@@ -8770,7 +8789,7 @@ KEMBALIKAN OUTPUT HANYA DALAM FORMAT JSON VALID:
                                             onClick={handleGenerateMBM}
                                             disabled={isGenerating}
                                             className="bg-neon hover:bg-neon-dark text-obsidian text-xs font-black px-4 py-2 rounded-xl transition-all shadow-sm flex items-center gap-2 active:scale-95"
-                                            title={generationSpeedMode === 'turbo' ? "Generate MBM Kilat (5–10 detik)" : "Generate MBM Audio Paralel (15–25 detik)"}
+                                            title={generationSpeedMode === 'turbo' ? "Generate MBM Kilat (5–10 detik)" : "Generate MBM In-Depth Cepat (~1–2 menit)"}
                                         >
                                             {isGenerating ? (
                                                 <i className="fa-solid fa-spinner animate-spin text-xs"></i>
